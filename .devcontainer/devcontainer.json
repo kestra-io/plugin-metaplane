@@ -1,10 +1,10 @@
 {
-  "name": "plugin-template",
+  "name": "plugin-metaplane",
   "build": {
     "context": ".",
     "dockerfile": "Dockerfile"
   },
-  "workspaceFolder": "/workspaces/plugin-template",
+  "workspaceFolder": "/workspaces/plugin-metaplane",
   "forwardPorts": [8080],
   "customizations": {
     "vscode": {
