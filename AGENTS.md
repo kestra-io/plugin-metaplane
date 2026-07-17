@@ -3,29 +3,46 @@
 ## What
 
 - Provides plugin components under `io.kestra.plugin.metaplane`.
-- Includes classes such as `Example`, `Trigger`.
+- Includes the tasks `Run`, `Get`, `List`, the trigger `MonitorResultTrigger`, the shared
+  `AbstractMetaplaneTask` base class, and the response models `Monitor`, `MonitorStatusResponse`,
+  `MonitorStatus`.
 
 ## Why
 
-- What user problem does this solve? Teams need a concrete starting point for building and validating new Kestra plugins without recreating the same project scaffolding from scratch.
-- Why would a team adopt this plugin in a workflow? It gives plugin authors a ready-made reference repo they can adapt alongside their own build, test, and publishing workflow.
-- What operational/business outcome does it enable? It shortens plugin delivery time, reduces setup mistakes, and makes internal or partner plugin development more repeatable.
+- What user problem does this solve? Metaplane is a data-observability tool: teams need to run its
+  SQL anomaly-detection monitors, read their results, and gate a data pipeline on the outcome without
+  leaving Kestra.
+- Why would a team adopt this plugin in a workflow? It lets a flow trigger a monitor run, wait for and
+  read its result, and halt the pipeline (e.g. before loading data downstream) when an anomaly is
+  detected, or react to status changes via a polling trigger.
+- What operational/business outcome does it enable? It closes the loop between data-quality checks and
+  pipeline execution, so bad data is caught and blocked automatically instead of relying on someone
+  checking a dashboard.
 
 ## How
 
 ### Architecture
 
-Single-module plugin. Source packages under `io.kestra.plugin`:
+Single-module, flat plugin (no sub-packages). Source package: `io.kestra.plugin.metaplane`.
 
-- `metaplane`
-
-Infrastructure dependencies (Docker Compose services):
-
-- `app`
+All tasks and the trigger authenticate with a Bearer `apiToken` against the Metaplane API
+(`https://docs.metaplane.dev/reference`); the base URL is user-overridable since Metaplane does not
+publish a confirmed stable one. No official Java SDK exists, so calls use Kestra's internal HTTP
+client (`io.kestra.core.http.client`) and Jackson mappers from `io.kestra.core.serializers`.
 
 ### Key Plugin Classes
 
-- `io.kestra.plugin.metaplane.Example`
+- `io.kestra.plugin.metaplane.AbstractMetaplaneTask` — shared apiToken/baseUrl properties, HTTP
+  request plumbing, and error handling (401/403 → invalid token, 404 on the status endpoint → "monitor
+  has no run history yet"). Exposes static helpers reused by `MonitorResultTrigger`, which cannot
+  extend it since it extends `AbstractTrigger` instead of `Task`.
+- `io.kestra.plugin.metaplane.Run` — enqueues one or more monitors to run now (`POST /v1/monitors/run`).
+- `io.kestra.plugin.metaplane.Get` — reads a monitor's latest status (`GET /v2/monitors/status/{id}`),
+  a pure read task; gating is left to the flow.
+- `io.kestra.plugin.metaplane.List` — lists monitors in the workspace (`GET /v1/monitors`), with
+  `fetchType` semantics.
+- `io.kestra.plugin.metaplane.MonitorResultTrigger` — polling trigger, fires only when a monitor's
+  status changes since the last poll (dedup via namespace KV store).
 
 ### Project Structure
 
@@ -45,3 +62,4 @@ plugin-metaplane/
 
 - https://kestra.io/docs/plugin-developer-guide
 - https://kestra.io/docs/plugin-developer-guide/contribution-guidelines
+- https://docs.metaplane.dev/reference
