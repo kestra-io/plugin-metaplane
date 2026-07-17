@@ -56,7 +56,7 @@ public abstract class AbstractMetaplaneTask extends Task {
     public static final ObjectMapper MAPPER = JacksonMapper.ofJson(false)
         .copy()
         // Tolerates status values Metaplane may introduce in the future by falling back to MonitorStatus.UNKNOWN
-        // instead of throwing, since the response schema is not officially confirmed.
+        // instead of throwing, for forward-compatibility with new enum values Metaplane may add later.
         .configure(DeserializationFeature.READ_UNKNOWN_ENUM_VALUES_USING_DEFAULT_VALUE, true);
 
     @Schema(

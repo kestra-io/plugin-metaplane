@@ -12,6 +12,10 @@ import java.util.List;
  * Response of GET /v2/monitors/status/{monitorId}, per the documented MonitorStatusResultV2 schema
  * (https://docs.metaplane.dev/reference/getmonitorstatus2). A monitor can have several group-by
  * series, each with its own status; {@link #overallStatus()} rolls them up into a single value.
+ *
+ * <p>v2 is used here because Metaplane's v1 status endpoint is documented as deprecated
+ * (https://docs.metaplane.dev/reference/getmonitorstatus). Run and List still use v1 since that's
+ * the only version Metaplane documents for those two operations - there is no v2 equivalent.
  */
 @Data
 @NoArgsConstructor
