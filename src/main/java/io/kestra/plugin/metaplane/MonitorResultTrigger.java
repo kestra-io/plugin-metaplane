@@ -77,6 +77,7 @@ public class MonitorResultTrigger extends AbstractTrigger
     )
     @NotNull
     @PluginProperty(group = "connection", secret = true)
+    @ToString.Exclude
     private Property<String> apiToken;
 
     @Schema(

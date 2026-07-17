@@ -18,7 +18,11 @@ import io.kestra.core.serializers.FileSerde;
 import io.kestra.core.serializers.JacksonMapper;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotNull;
-import lombok.*;
+import lombok.Builder;
+import lombok.EqualsAndHashCode;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.ToString;
 import lombok.experimental.SuperBuilder;
 import org.slf4j.Logger;
 import reactor.core.publisher.Flux;
@@ -62,6 +66,7 @@ public abstract class AbstractMetaplaneTask extends Task {
     )
     @NotNull
     @PluginProperty(secret = true, group = "connection")
+    @ToString.Exclude
     protected Property<String> apiToken;
 
     @Schema(
@@ -129,7 +134,7 @@ public abstract class AbstractMetaplaneTask extends Task {
             @SuppressWarnings("unchecked")
             RES parsedResponse = responseType == String.class
                 ? (RES) response.getBody()
-                : MAPPER.readValue(response.getBody(), responseType);
+                : MAPPER.readValue(response.getBody() != null ? response.getBody() : "{}", responseType);
 
             return HttpResponse.<RES>builder()
                 .request(request)
