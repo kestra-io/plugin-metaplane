@@ -26,9 +26,10 @@
 Single-module, flat plugin (no sub-packages). Source package: `io.kestra.plugin.metaplane`.
 
 All tasks and the trigger authenticate with a Bearer `apiToken` against the Metaplane API
-(`https://docs.metaplane.dev/reference`); the base URL is user-overridable since Metaplane does not
-publish a confirmed stable one. No official Java SDK exists, so calls use Kestra's internal HTTP
-client (`io.kestra.core.http.client`) and Jackson mappers from `io.kestra.core.serializers`.
+(`https://docs.metaplane.dev/reference`), served from `https://dev.api.metaplane.dev` (not
+`app.metaplane.dev`, which is the web app); the base URL stays user-overridable in case Metaplane
+changes or adds hosts. No official Java SDK exists, so calls use Kestra's internal HTTP client
+(`io.kestra.core.http.client`) and Jackson mappers from `io.kestra.core.serializers`.
 
 ### Key Plugin Classes
 
@@ -39,8 +40,8 @@ client (`io.kestra.core.http.client`) and Jackson mappers from `io.kestra.core.s
 - `io.kestra.plugin.metaplane.Run` — enqueues one or more monitors to run now (`POST /v1/monitors/run`).
 - `io.kestra.plugin.metaplane.Get` — reads a monitor's latest status (`GET /v2/monitors/status/{id}`),
   a pure read task; gating is left to the flow.
-- `io.kestra.plugin.metaplane.List` — lists monitors in the workspace (`GET /v1/monitors`), with
-  `fetchType` semantics.
+- `io.kestra.plugin.metaplane.List` — lists monitors for a given connection
+  (`GET /v1/monitors/connection/{connectionId}`), with `fetchType` semantics.
 - `io.kestra.plugin.metaplane.MonitorResultTrigger` — polling trigger, fires only when a monitor's
   status changes since the last poll (dedup via namespace KV store).
 

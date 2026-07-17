@@ -48,10 +48,11 @@ import java.util.List;
 public abstract class AbstractMetaplaneTask extends Task {
 
     /**
-     * Metaplane does not publish a stable base URL in its official API docs (https://docs.metaplane.dev/reference).
-     * This default is a best-effort guess and must remain overridable via the baseUrl property.
+     * Confirmed against Metaplane's official API docs (https://docs.metaplane.dev/reference): the API is
+     * served from dev.api.metaplane.dev, not app.metaplane.dev (which is the web app, not the API host).
+     * Kept overridable via the baseUrl property in case Metaplane introduces additional or region-specific hosts.
      */
-    public static final String DEFAULT_BASE_URL = "https://app.metaplane.dev/api";
+    public static final String DEFAULT_BASE_URL = "https://dev.api.metaplane.dev";
 
     public static final ObjectMapper MAPPER = JacksonMapper.ofJson(false)
         .copy()
@@ -71,8 +72,9 @@ public abstract class AbstractMetaplaneTask extends Task {
 
     @Schema(
         title = "Metaplane API base URL",
-        description = "Base endpoint for all Metaplane API calls. Metaplane's official docs do not confirm a " +
-            "stable production base URL, so this is always overridable. Defaults to `" + DEFAULT_BASE_URL + "`."
+        description = "Base endpoint for all Metaplane API calls, as documented at " +
+            "https://docs.metaplane.dev/reference. Defaults to `" + DEFAULT_BASE_URL + "` and is still " +
+            "overridable in case Metaplane changes or adds hosts."
     )
     @NotNull
     @Builder.Default

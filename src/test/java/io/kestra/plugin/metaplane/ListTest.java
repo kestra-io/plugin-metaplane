@@ -31,15 +31,19 @@ class ListTest extends AbstractMetaplaneTest {
         }
         """;
 
+    private static final String CONNECTION_ID = "connection-1";
+    private static final String MONITORS_PATH = "/v1/monitors/connection/" + CONNECTION_ID;
+
     @Test
     void listsMonitors(WireMockRuntimeInfo wireMockRuntimeInfo) throws Exception {
-        stubGetJson("/v1/monitors", MONITORS_JSON);
+        stubGetJson(MONITORS_PATH, MONITORS_JSON);
 
         var task = List.builder()
             .id("list-test")
             .type(List.class.getName())
             .apiToken(Property.ofValue("test-api-token"))
             .baseUrl(Property.ofValue(wireMockRuntimeInfo.getHttpBaseUrl()))
+            .connectionId(Property.ofValue(CONNECTION_ID))
             .build();
 
         var output = task.run(runContext());
@@ -52,13 +56,14 @@ class ListTest extends AbstractMetaplaneTest {
 
     @Test
     void listsMonitorsFromObjectWrappedResponse(WireMockRuntimeInfo wireMockRuntimeInfo) throws Exception {
-        stubGetJson("/v1/monitors", MONITORS_WRAPPED_JSON);
+        stubGetJson(MONITORS_PATH, MONITORS_WRAPPED_JSON);
 
         var task = List.builder()
             .id("list-wrapped-test")
             .type(List.class.getName())
             .apiToken(Property.ofValue("test-api-token"))
             .baseUrl(Property.ofValue(wireMockRuntimeInfo.getHttpBaseUrl()))
+            .connectionId(Property.ofValue(CONNECTION_ID))
             .build();
 
         var output = task.run(runContext());
@@ -71,28 +76,30 @@ class ListTest extends AbstractMetaplaneTest {
 
     @Test
     void failsWithClearMessageOnUnexpectedResponseShape(WireMockRuntimeInfo wireMockRuntimeInfo) {
-        stubGetJson("/v1/monitors", "{\"error\": \"nope\"}");
+        stubGetJson(MONITORS_PATH, "{\"error\": \"nope\"}");
 
         var task = List.builder()
             .id("list-unexpected-shape-test")
             .type(List.class.getName())
             .apiToken(Property.ofValue("test-api-token"))
             .baseUrl(Property.ofValue(wireMockRuntimeInfo.getHttpBaseUrl()))
+            .connectionId(Property.ofValue(CONNECTION_ID))
             .build();
 
         var exception = assertThrows(IllegalStateException.class, () -> task.run(runContext()));
-        assertThat(exception.getMessage(), containsString("Unexpected response shape from GET /v1/monitors"));
+        assertThat(exception.getMessage(), containsString("Unexpected response shape from GET /v1/monitors/connection/{connectionId}"));
     }
 
     @Test
     void fetchOneReturnsFirstMonitorOnly(WireMockRuntimeInfo wireMockRuntimeInfo) throws Exception {
-        stubGetJson("/v1/monitors", MONITORS_JSON);
+        stubGetJson(MONITORS_PATH, MONITORS_JSON);
 
         var task = List.builder()
             .id("list-fetch-one-test")
             .type(List.class.getName())
             .apiToken(Property.ofValue("test-api-token"))
             .baseUrl(Property.ofValue(wireMockRuntimeInfo.getHttpBaseUrl()))
+            .connectionId(Property.ofValue(CONNECTION_ID))
             .fetchType(Property.ofValue(FetchType.FETCH_ONE))
             .build();
 

@@ -6,7 +6,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 /**
- * A single monitor as returned by GET /v1/monitors.
+ * A single monitor as returned by GET /v1/monitors/connection/{connectionId}.
  */
 @Data
 @NoArgsConstructor

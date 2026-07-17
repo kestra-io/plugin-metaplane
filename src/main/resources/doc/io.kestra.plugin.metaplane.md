@@ -14,9 +14,9 @@ as a Kestra [secret](https://kestra.io/docs/concepts/secret) and reference it wi
 [plugin defaults](https://kestra.io/docs/workflow-components/plugin-defaults) so it doesn't need to be
 repeated on every task.
 
-`baseUrl` is optional and defaults to `https://app.metaplane.dev/api`. Metaplane's official docs do not
-publish a confirmed, stable base URL, so override it if Metaplane documents or changes the production
-endpoint for your account.
+`baseUrl` is optional and defaults to `https://dev.api.metaplane.dev`, the API host documented at
+[docs.metaplane.dev/reference](https://docs.metaplane.dev/reference) (not `app.metaplane.dev`, which is
+the web app). Override it if Metaplane changes or adds hosts for your account.
 
 ## Tasks
 
@@ -29,14 +29,17 @@ endpoint for your account.
   of an anomaly, it only reports `status` (`OK`, `ANOMALY`, `ERROR`, or `UNKNOWN` for any value not
   recognized yet). Gate a pipeline on the result with a downstream
   `io.kestra.plugin.core.execution.Fail` task conditioned on `outputs.<taskId>.status`. Fails with a
-  clear error if the monitor has never been run (the API returns HTTP 404 in that case).
-- **`List`** — lists the monitors in the workspace via `GET /v1/monitors`, with the standard
-  `fetchType` semantics (`FETCH`, `FETCH_ONE`, `STORE`, `NONE`). The exact response shape isn't
-  confirmed by Metaplane's official docs, so it accepts either a bare JSON array or an object wrapping
-  the array under a `monitors` key, and fails with a clear error on any other shape.
-
-A typical pattern is `Run` followed by `Get`, then a `Fail` task gating on the status — see the
-example on the `Run` task.
+  clear error if the monitor has never been run (the API returns HTTP 404 in that case). Since `Run`
+  only enqueues a monitor and does not wait for completion, insert a wait (e.g.
+  `io.kestra.plugin.core.flow.Pause`) between `Run` and `Get` in the same flow, or read the status once
+  you know a run has finished elsewhere (e.g. it runs on its own schedule) — see the
+  `MonitorResultTrigger` section below to react to a run as soon as it completes instead.
+- **`List`** — lists the monitors defined for a given Metaplane connection (`connectionId`) via
+  `GET /v1/monitors/connection/{connectionId}`, optionally filtered with `includeDisabled` and
+  `fetchGroups`, with the standard `fetchType` semantics (`FETCH`, `FETCH_ONE`, `STORE`, `NONE`). The
+  exact response shape isn't confirmed by Metaplane's official docs, so it accepts either a bare JSON
+  array or an object wrapping the array under a `monitors` key, and fails with a clear error on any
+  other shape.
 
 ## Triggers
 

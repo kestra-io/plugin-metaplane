@@ -82,7 +82,9 @@ public class MonitorResultTrigger extends AbstractTrigger
 
     @Schema(
         title = "Metaplane API base URL",
-        description = "Base endpoint for all Metaplane API calls. Defaults to `" + AbstractMetaplaneTask.DEFAULT_BASE_URL + "`."
+        description = "Base endpoint for all Metaplane API calls, as documented at " +
+            "https://docs.metaplane.dev/reference. Defaults to `" + AbstractMetaplaneTask.DEFAULT_BASE_URL + "` and is still " +
+            "overridable in case Metaplane changes or adds hosts."
     )
     @NotNull
     @Builder.Default

@@ -36,7 +36,7 @@ import java.time.Instant;
 @Plugin(
     examples = {
         @Example(
-            title = "Run a Metaplane monitor and gate the pipeline on its result",
+            title = "Run a Metaplane monitor, wait for it to complete, then gate the pipeline on its result",
             full = true,
             code = """
                 id: metaplane_gate
@@ -48,6 +48,12 @@ import java.time.Instant;
                     apiToken: "{{ secret('METAPLANE_API_TOKEN') }}"
                     monitorIds:
                       - "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                  - id: wait_for_monitor_run
+                    type: io.kestra.plugin.core.flow.Pause
+                    # Run only enqueues the monitor and does not wait for completion; this pause gives it
+                    # time to finish before Get reads its status. For a guaranteed-fresh result instead of
+                    # a fixed wait, react to io.kestra.plugin.metaplane.MonitorResultTrigger in a separate flow.
+                    pauseDuration: PT1M
                   - id: get_result
                     type: io.kestra.plugin.metaplane.Get
                     apiToken: "{{ secret('METAPLANE_API_TOKEN') }}"
