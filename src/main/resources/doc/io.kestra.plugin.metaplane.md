@@ -31,7 +31,9 @@ endpoint for your account.
   `io.kestra.plugin.core.execution.Fail` task conditioned on `outputs.<taskId>.status`. Fails with a
   clear error if the monitor has never been run (the API returns HTTP 404 in that case).
 - **`List`** — lists the monitors in the workspace via `GET /v1/monitors`, with the standard
-  `fetchType` semantics (`FETCH`, `FETCH_ONE`, `STORE`, `NONE`).
+  `fetchType` semantics (`FETCH`, `FETCH_ONE`, `STORE`, `NONE`). The exact response shape isn't
+  confirmed by Metaplane's official docs, so it accepts either a bare JSON array or an object wrapping
+  the array under a `monitors` key, and fails with a clear error on any other shape.
 
 A typical pattern is `Run` followed by `Get`, then a `Fail` task gating on the status — see the
 example on the `Run` task.

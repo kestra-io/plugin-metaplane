@@ -1,6 +1,7 @@
 package io.kestra.plugin.metaplane;
 
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
 import io.kestra.core.http.HttpRequest;
 import io.kestra.core.models.annotations.Example;
 import io.kestra.core.models.annotations.Plugin;
@@ -60,6 +61,30 @@ public class List extends AbstractMetaplaneTask implements RunnableTask<List.Out
     @Builder.Default
     private Property<FetchType> fetchType = Property.ofValue(FetchType.FETCH);
 
+    /**
+     * The exact shape of GET /v1/monitors isn't confirmed by Metaplane's official docs, so this tolerates
+     * both a bare JSON array and an object wrapping the array under a "monitors" key, instead of assuming
+     * one shape and crashing with a raw Jackson error on the other.
+     */
+    private static final String MONITORS_FIELD = "monitors";
+
+    private static ArrayList<Monitor> parseMonitors(JsonNode node) {
+        if (node.isArray()) {
+            return MAPPER.convertValue(node, new TypeReference<ArrayList<Monitor>>() {
+            });
+        }
+
+        if (node.isObject() && node.path(MONITORS_FIELD).isArray()) {
+            return MAPPER.convertValue(node.get(MONITORS_FIELD), new TypeReference<ArrayList<Monitor>>() {
+            });
+        }
+
+        throw new IllegalStateException(
+            "Unexpected response shape from GET /v1/monitors: expected a JSON array or an object containing a \""
+                + MONITORS_FIELD + "\" array, got " + node.getNodeType()
+        );
+    }
+
     @Override
     public Output run(RunContext runContext) throws Exception {
         var logger = runContext.logger();
@@ -71,8 +96,7 @@ public class List extends AbstractMetaplaneTask implements RunnableTask<List.Out
 
         var requestBuilder = HttpRequest.builder().uri(URI.create(url)).method("GET");
         var body = request(runContext, requestBuilder, String.class).getBody();
-        var monitors = MAPPER.readValue(body != null ? body : "[]", new TypeReference<ArrayList<Monitor>>() {
-        });
+        var monitors = parseMonitors(MAPPER.readTree(body != null ? body : "[]"));
 
         logger.info("Found {} monitor(s)", monitors.size());
 
