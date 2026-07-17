@@ -61,7 +61,7 @@ import java.util.Map;
                     monitorId: "3fa85f64-5717-4562-b3fc-2c963f66afa6"
                   - id: halt_on_anomaly
                     type: io.kestra.plugin.core.execution.Fail
-                    condition: "{{ outputs.get_result.status == 'ANOMALY' }}"
+                    condition: "{{ outputs.get_result.status == 'FAIL' }}"
                 """
         )
     }

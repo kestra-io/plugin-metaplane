@@ -29,7 +29,7 @@ public abstract class AbstractMetaplaneTest {
         stubFor(get(urlPathEqualTo(path)).willReturn(okJson(jsonBody)));
     }
 
-    protected static void verifyBearerAuth(RequestPatternBuilder request, String token) {
-        verify(request.withHeader("Authorization", equalTo("Bearer " + token)));
+    protected static void verifyAuthHeader(RequestPatternBuilder request, String token) {
+        verify(request.withHeader("Authorization", equalTo(token)));
     }
 }

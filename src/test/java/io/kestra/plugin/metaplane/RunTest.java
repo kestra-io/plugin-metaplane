@@ -42,7 +42,7 @@ class RunTest extends AbstractMetaplaneTest {
     }
 
     @Test
-    void sendsBearerAuthorizationHeader(WireMockRuntimeInfo wireMockRuntimeInfo) throws Exception {
+    void sendsAuthorizationHeader(WireMockRuntimeInfo wireMockRuntimeInfo) throws Exception {
         stubFor(post(urlPathEqualTo("/v1/monitors/run")).willReturn(okJson("{}")));
 
         var task = Run.builder()
@@ -55,7 +55,7 @@ class RunTest extends AbstractMetaplaneTest {
 
         task.run(runContext());
 
-        verifyBearerAuth(postRequestedFor(urlPathEqualTo("/v1/monitors/run")), "my-secret-token");
+        verifyAuthHeader(postRequestedFor(urlPathEqualTo("/v1/monitors/run")), "my-secret-token");
     }
 
     @Test

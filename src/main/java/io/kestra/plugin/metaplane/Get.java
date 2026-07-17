@@ -60,7 +60,7 @@ import java.time.Instant;
                     monitorId: "3fa85f64-5717-4562-b3fc-2c963f66afa6"
                   - id: halt_on_anomaly
                     type: io.kestra.plugin.core.execution.Fail
-                    condition: "{{ outputs.get_result.status == 'ANOMALY' }}"
+                    condition: "{{ outputs.get_result.status == 'FAIL' }}"
                 """
         )
     }
@@ -88,12 +88,12 @@ public class Get extends AbstractMetaplaneTask implements RunnableTask<Get.Outpu
         logger.info("Fetching Metaplane monitor status for {}", rMonitorId);
         var status = fetchMonitorStatus(runContext, this.options, rApiToken, rBaseUrl, rMonitorId);
 
-        logger.info("Monitor {} status: {}", rMonitorId, status.getStatus());
+        logger.info("Monitor {} status: {}", rMonitorId, status.overallStatus());
 
         return Output.builder()
             .monitorId(rMonitorId)
-            .status(status.getStatus())
-            .checkedAt(status.getCheckedAt())
+            .status(status.overallStatus())
+            .checkedAt(status.getTimestamp())
             .build();
     }
 
@@ -105,9 +105,11 @@ public class Get extends AbstractMetaplaneTask implements RunnableTask<Get.Outpu
         private final String monitorId;
 
         @Schema(
-            title = "Latest monitor status",
-            description = "OK: no anomaly detected. ANOMALY: the monitor detected an anomaly. ERROR: the monitor " +
-                "run failed. UNKNOWN: the API returned a status value not recognized by this task."
+            title = "Overall monitor status",
+            description = "The worst status across all of the monitor's group-by series, or ERROR if the " +
+                "underlying query itself failed. One of PASS (no anomaly), FAIL (anomaly detected), " +
+                "IN_TRAINING, NOT_ENOUGH_DATA, FAILED_TO_PREDICT, INVALID_INPUT, ERROR, or UNKNOWN for any " +
+                "value not recognized by this task."
         )
         private final MonitorStatus status;
 

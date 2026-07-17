@@ -72,7 +72,7 @@ public class MonitorResultTrigger extends AbstractTrigger
 
     @Schema(
         title = "Metaplane API token",
-        description = "Bearer token used to authenticate against the Metaplane API. Generate one at " +
+        description = "API token used to authenticate against the Metaplane API. Generate one at " +
             "https://app.metaplane.dev/account/manage-tokens and store it as a Kestra secret."
     )
     @NotNull
@@ -82,9 +82,7 @@ public class MonitorResultTrigger extends AbstractTrigger
 
     @Schema(
         title = "Metaplane API base URL",
-        description = "Base endpoint for all Metaplane API calls, as documented at " +
-            "https://docs.metaplane.dev/reference. Defaults to `" + AbstractMetaplaneTask.DEFAULT_BASE_URL + "` and is still " +
-            "overridable in case Metaplane changes or adds hosts."
+        description = "Base endpoint for all Metaplane API calls. Defaults to `" + AbstractMetaplaneTask.DEFAULT_BASE_URL + "`."
     )
     @NotNull
     @Builder.Default
@@ -142,25 +140,26 @@ public class MonitorResultTrigger extends AbstractTrigger
         var baselineTtl = interval.multipliedBy(10);
 
         var previousStatus = kv.getValue(kvKey);
+        var overallStatus = status.overallStatus();
 
         if (previousStatus.isEmpty()) {
-            logger.info("Establishing status baseline for monitor {}: {}", rMonitorId, status.getStatus());
-            persistStatus(kv, kvKey, status.getStatus(), baselineTtl);
+            logger.info("Establishing status baseline for monitor {}: {}", rMonitorId, overallStatus);
+            persistStatus(kv, kvKey, overallStatus, baselineTtl);
             return Optional.empty();
         }
 
-        if (status.getStatus().name().equals(previousStatus.get().value())) {
+        if (overallStatus.name().equals(previousStatus.get().value())) {
             return Optional.empty();
         }
 
-        persistStatus(kv, kvKey, status.getStatus(), baselineTtl);
+        persistStatus(kv, kvKey, overallStatus, baselineTtl);
 
-        logger.info("Monitor {} status changed to {}", rMonitorId, status.getStatus());
+        logger.info("Monitor {} status changed to {}", rMonitorId, overallStatus);
 
         var output = Output.builder()
             .monitorId(rMonitorId)
-            .status(status.getStatus())
-            .checkedAt(status.getCheckedAt())
+            .status(overallStatus)
+            .checkedAt(status.getTimestamp())
             .build();
 
         return Optional.of(TriggerService.generateExecution(this, conditionContext, context, output));

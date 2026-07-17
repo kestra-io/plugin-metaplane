@@ -7,7 +7,7 @@ the monitors in a workspace, and react when a monitor's status changes — see t
 
 ## Authentication
 
-Every task and the trigger require an `apiToken`: a Bearer token generated at
+Every task and the trigger require an `apiToken`: an API token generated at
 [app.metaplane.dev/account/manage-tokens](https://app.metaplane.dev/account/manage-tokens). Store it
 as a Kestra [secret](https://kestra.io/docs/concepts/secret) and reference it with
 `{{ secret('METAPLANE_API_TOKEN') }}`, or set it once via
@@ -26,8 +26,10 @@ the web app). Override it if Metaplane changes or adds hosts for your account.
   the API.
 - **`Get`** — reads the latest status of a single monitor (`monitorId`) via
   `GET /v2/monitors/status/{monitorId}`. This is a pure read: it never fails or halts the flow because
-  of an anomaly, it only reports `status` (`OK`, `ANOMALY`, `ERROR`, or `UNKNOWN` for any value not
-  recognized yet). Gate a pipeline on the result with a downstream
+  of an anomaly, it only reports `status`, the worst status across all of the monitor's group-by
+  series (`PASS`, `IN_TRAINING`, `NOT_ENOUGH_DATA`, `FAILED_TO_PREDICT`, `INVALID_INPUT`, `ERROR`,
+  `FAIL`, or `UNKNOWN` for any value not recognized yet), or `ERROR` if the underlying query itself
+  failed. Gate a pipeline on the result with a downstream
   `io.kestra.plugin.core.execution.Fail` task conditioned on `outputs.<taskId>.status`. Fails with a
   clear error if the monitor has never been run (the API returns HTTP 404 in that case). Since `Run`
   only enqueues a monitor and does not wait for completion, insert a wait (e.g.

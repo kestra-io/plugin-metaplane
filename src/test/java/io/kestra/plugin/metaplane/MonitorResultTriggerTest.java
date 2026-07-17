@@ -77,7 +77,7 @@ class MonitorResultTriggerTest extends AbstractMetaplaneTest {
     @Test
     void firstEvaluationStoresBaselineAndDoesNotFire(WireMockRuntimeInfo wireMockRuntimeInfo) throws Exception {
         triggerId = buildTriggerId();
-        stubGetJson("/v2/monitors/status/monitor-1", "{\"id\":\"monitor-1\",\"status\":\"OK\"}");
+        stubGetJson("/v2/monitors/status/monitor-1", "{\"statuses\":[{\"status\":\"PASS\"}],\"isErrored\":false}");
 
         var trigger = buildTrigger(wireMockRuntimeInfo.getHttpBaseUrl());
         var trigCtx = triggerContext("test-flow");
@@ -91,7 +91,7 @@ class MonitorResultTriggerTest extends AbstractMetaplaneTest {
     @Test
     void doesNotRefireWhenStatusUnchanged(WireMockRuntimeInfo wireMockRuntimeInfo) throws Exception {
         triggerId = buildTriggerId();
-        stubGetJson("/v2/monitors/status/monitor-1", "{\"id\":\"monitor-1\",\"status\":\"OK\"}");
+        stubGetJson("/v2/monitors/status/monitor-1", "{\"statuses\":[{\"status\":\"PASS\"}],\"isErrored\":false}");
 
         var trigger = buildTrigger(wireMockRuntimeInfo.getHttpBaseUrl());
         var trigCtx = triggerContext("test-flow");
@@ -109,12 +109,12 @@ class MonitorResultTriggerTest extends AbstractMetaplaneTest {
         stubFor(get(urlPathEqualTo("/v2/monitors/status/monitor-1"))
             .inScenario("status-change")
             .whenScenarioStateIs(Scenario.STARTED)
-            .willReturn(okJson("{\"id\":\"monitor-1\",\"status\":\"OK\"}"))
+            .willReturn(okJson("{\"statuses\":[{\"status\":\"PASS\"}],\"isErrored\":false}"))
             .willSetStateTo("baseline-set"));
         stubFor(get(urlPathEqualTo("/v2/monitors/status/monitor-1"))
             .inScenario("status-change")
             .whenScenarioStateIs("baseline-set")
-            .willReturn(okJson("{\"id\":\"monitor-1\",\"status\":\"ANOMALY\"}")));
+            .willReturn(okJson("{\"statuses\":[{\"status\":\"FAIL\"}],\"isErrored\":false}")));
 
         var trigger = buildTrigger(wireMockRuntimeInfo.getHttpBaseUrl());
         var trigCtx = triggerContext("test-flow");
@@ -126,7 +126,7 @@ class MonitorResultTriggerTest extends AbstractMetaplaneTest {
         assertThat("trigger must fire when the status changes", result.isPresent(), is(true));
         @SuppressWarnings("unchecked")
         var triggerVars = (Map<String, Object>) result.get().getTrigger().getVariables();
-        assertThat(triggerVars.get("status"), is("ANOMALY"));
+        assertThat(triggerVars.get("status"), is("FAIL"));
         assertThat(triggerVars.get("monitorId"), is("monitor-1"));
     }
 

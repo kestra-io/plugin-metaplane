@@ -89,13 +89,13 @@ public class List extends AbstractMetaplaneTask implements RunnableTask<List.Out
     @Builder.Default
     private Property<FetchType> fetchType = Property.ofValue(FetchType.FETCH);
 
+    private static final String MONITORS_FIELD = "monitors";
+
     /**
      * The exact shape of GET /v1/monitors/connection/{connectionId} isn't confirmed by Metaplane's official docs,
      * so this tolerates both a bare JSON array and an object wrapping the array under a "monitors" key, instead
      * of assuming one shape and crashing with a raw Jackson error on the other.
      */
-    private static final String MONITORS_FIELD = "monitors";
-
     private static ArrayList<Monitor> parseMonitors(JsonNode node) {
         if (node.isArray()) {
             return MAPPER.convertValue(node, new TypeReference<ArrayList<Monitor>>() {

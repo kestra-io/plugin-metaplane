@@ -7,7 +7,6 @@ import io.kestra.core.http.HttpRequest;
 import io.kestra.core.http.HttpResponse;
 import io.kestra.core.http.client.HttpClient;
 import io.kestra.core.http.client.HttpClientResponseException;
-import io.kestra.core.http.client.configurations.BearerAuthConfiguration;
 import io.kestra.core.http.client.configurations.HttpConfiguration;
 import io.kestra.core.models.annotations.PluginProperty;
 import io.kestra.core.models.property.Property;
@@ -62,7 +61,7 @@ public abstract class AbstractMetaplaneTask extends Task {
 
     @Schema(
         title = "Metaplane API token",
-        description = "Bearer token used to authenticate against the Metaplane API. Generate one at " +
+        description = "API token used to authenticate against the Metaplane API. Generate one at " +
             "https://app.metaplane.dev/account/manage-tokens and store it as a Kestra secret."
     )
     @NotNull
@@ -72,9 +71,7 @@ public abstract class AbstractMetaplaneTask extends Task {
 
     @Schema(
         title = "Metaplane API base URL",
-        description = "Base endpoint for all Metaplane API calls, as documented at " +
-            "https://docs.metaplane.dev/reference. Defaults to `" + DEFAULT_BASE_URL + "` and is still " +
-            "overridable in case Metaplane changes or adds hosts."
+        description = "Base endpoint for all Metaplane API calls. Defaults to `" + DEFAULT_BASE_URL + "`."
     )
     @NotNull
     @Builder.Default
@@ -88,10 +85,18 @@ public abstract class AbstractMetaplaneTask extends Task {
     @PluginProperty(group = "advanced")
     protected HttpConfiguration options;
 
+    /**
+     * Convenience wrapper around the static overload below, for Task subclasses that hold apiToken/baseUrl
+     * as instance fields; MonitorResultTrigger (not a Task) calls the static overloads directly.
+     */
     protected String renderApiToken(RunContext runContext) throws IllegalVariableEvaluationException {
         return renderApiToken(runContext, this.apiToken);
     }
 
+    /**
+     * Convenience wrapper around the static overload below, for Task subclasses that hold apiToken/baseUrl
+     * as instance fields; MonitorResultTrigger (not a Task) calls the static overloads directly.
+     */
     protected String renderBaseUrl(RunContext runContext) throws IllegalVariableEvaluationException {
         return renderBaseUrl(runContext, this.baseUrl);
     }
@@ -112,7 +117,7 @@ public abstract class AbstractMetaplaneTask extends Task {
     }
 
     /**
-     * Shared HTTP call logic: attaches Bearer auth, executes the request, and on a non-2xx response
+     * Shared HTTP call logic: attaches the API key, executes the request, and on a non-2xx response
      * rewrites the failure into a clear, actionable message (never a raw stack trace).
      */
     public static <RES> HttpResponse<RES> request(
@@ -125,10 +130,10 @@ public abstract class AbstractMetaplaneTask extends Task {
         var request = requestBuilder
             .addHeader("Content-Type", "application/json")
             .addHeader("Accept", "application/json")
+            .addHeader("Authorization", apiToken)
             .build();
 
         var configBuilder = options != null ? options.toBuilder() : HttpConfiguration.builder();
-        configBuilder.auth(BearerAuthConfiguration.builder().token(Property.ofValue(apiToken)).build());
 
         try (var client = new HttpClient(runContext, configBuilder.build())) {
             var response = client.request(request, String.class);
@@ -161,6 +166,14 @@ public abstract class AbstractMetaplaneTask extends Task {
             return new HttpClientResponseException(
                 "Metaplane API returned HTTP " + status + ": invalid or missing API token. Verify apiToken is a " +
                     "valid, non-expired token created at https://app.metaplane.dev/account/manage-tokens",
+                response, e
+            );
+        }
+
+        if (status == 404) {
+            return new HttpClientResponseException(
+                "Metaplane API returned HTTP 404: resource not found. Verify baseUrl (e.g. " + DEFAULT_BASE_URL +
+                    ") and the ID used in the request are correct.",
                 response, e
             );
         }
