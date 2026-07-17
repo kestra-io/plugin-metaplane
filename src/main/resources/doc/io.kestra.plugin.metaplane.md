@@ -1,16 +1,52 @@
-This is the Kestra plugin template. Use it as a starting point for building a new plugin.
+# How to use the Metaplane plugin
 
-## What this template ships
+Metaplane is a data-observability tool that runs SQL-based anomaly-detection monitors against your
+warehouse tables. This plugin lets a Kestra flow trigger a monitor run, read its latest result, list
+the monitors in a workspace, and react when a monitor's status changes — see the
+[Metaplane API reference](https://docs.metaplane.dev/reference) for the underlying HTTP API.
 
-- `Example` is a sample `RunnableTask` that reverses an input string.
-- `Trigger` is a sample polling trigger that fires an execution at random.
+## Authentication
 
-## How to build your plugin
+Every task and the trigger require an `apiToken`: an API token generated at
+[app.metaplane.dev/account/manage-tokens](https://app.metaplane.dev/account/manage-tokens). Store it
+as a Kestra [secret](https://kestra.io/docs/concepts/secret) and reference it with
+`{{ secret('METAPLANE_API_TOKEN') }}`, or set it once via
+[plugin defaults](https://kestra.io/docs/workflow-components/plugin-defaults) so it doesn't need to be
+repeated on every task.
 
-1. Rename the package `io.kestra.plugin.metaplane` to your own, for example `io.kestra.plugin.myservice`.
-2. Update `group`, `name`, `title`, and `description` in `src/main/resources/metadata/index.yaml`.
-3. Replace `src/main/resources/icons/plugin-icon.svg` with your service's icon.
-4. Replace the `Example` and `Trigger` classes with your real tasks and triggers.
-5. Replace this how-to with documentation for your plugin.
+`baseUrl` is optional and defaults to `https://dev.api.metaplane.dev`, the API host documented at
+[docs.metaplane.dev/reference](https://docs.metaplane.dev/reference) (not `app.metaplane.dev`, which is
+the web app). Override it if Metaplane changes or adds hosts for your account.
 
-Run `./gradlew lintPluginDocs` before pushing to validate the plugin documentation.
+## Tasks
+
+- **`Run`** — enqueues one or more monitors (`monitorIds`) to run immediately via
+  `POST /v1/monitors/run`. The API only confirms the run was enqueued; it does not return a run ID or
+  wait for completion. `monitorIds` must contain at least one ID or the task fails fast before calling
+  the API.
+- **`Get`** — reads the latest status of a single monitor (`monitorId`) via
+  `GET /v2/monitors/status/{monitorId}`. This is a pure read: it never fails or halts the flow because
+  of an anomaly, it only reports `status`, the worst status across all of the monitor's group-by
+  series (`PASS`, `IN_TRAINING`, `NOT_ENOUGH_DATA`, `FAILED_TO_PREDICT`, `INVALID_INPUT`, `ERROR`,
+  `FAIL`, or `UNKNOWN` for any value not recognized yet), or `ERROR` if the underlying query itself
+  failed. Gate a pipeline on the result with a downstream
+  `io.kestra.plugin.core.execution.Fail` task conditioned on `outputs.<taskId>.status`. Fails with a
+  clear error if the monitor has never been run (the API returns HTTP 404 in that case). Since `Run`
+  only enqueues a monitor and does not wait for completion, insert a wait (e.g.
+  `io.kestra.plugin.core.flow.Pause`) between `Run` and `Get` in the same flow, or read the status once
+  you know a run has finished elsewhere (e.g. it runs on its own schedule) — see the
+  `MonitorResultTrigger` section below to react to a run as soon as it completes instead.
+- **`List`** — lists the monitors defined for a given Metaplane connection (`connectionId`) via
+  `GET /v1/monitors/connection/{connectionId}`, optionally filtered with `includeDisabled` and
+  `fetchGroups`, with the standard `fetchType` semantics (`FETCH`, `FETCH_ONE`, `STORE`, `NONE`). The
+  exact response shape isn't confirmed by Metaplane's official docs, so it accepts either a bare JSON
+  array or an object wrapping the array under a `monitors` key, and fails with a clear error on any
+  other shape.
+
+## Triggers
+
+- **`MonitorResultTrigger`** — polls a single monitor's status at `interval` (default `PT5M`) and
+  fires an execution only when the status changes from the last-seen value, so an unchanged status
+  never re-fires the trigger every interval. The first evaluation only establishes the baseline status
+  and does not fire. Outputs `monitorId`, `status`, and `checkedAt`. Like `Get`, it fails with a clear
+  error if the monitor has never been run.

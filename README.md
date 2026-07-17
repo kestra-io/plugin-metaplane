@@ -39,14 +39,21 @@
 
 ## Why
 
-- What user problem does this solve? Teams need a concrete starting point for building and validating new Kestra plugins without recreating the same project scaffolding from scratch.
-- Why would a team adopt this plugin in a workflow? It gives plugin authors a ready-made reference repo they can adapt alongside their own build, test, and publishing workflow.
-- What operational/business outcome does it enable? It shortens plugin delivery time, reduces setup mistakes, and makes internal or partner plugin development more repeatable.
+- What user problem does this solve? [Metaplane](https://metaplane.dev) is a data-observability tool
+  that runs SQL anomaly-detection monitors; teams need to trigger those monitors, read their results,
+  and gate a pipeline on the outcome without leaving Kestra.
+- Why would a team adopt this plugin in a workflow? It lets a flow run a Metaplane monitor, read its
+  result, and halt downstream processing on an anomaly, or react to status changes via a polling
+  trigger.
+- What operational/business outcome does it enable? It closes the loop between data-quality checks and
+  pipeline execution, catching bad data automatically instead of relying on someone checking a
+  dashboard.
 
 ## What
 
 - Provides plugin components under `io.kestra.plugin.metaplane`.
-- Includes classes such as `Example`, `Trigger`.
+- Includes the tasks `Run`, `Get`, `List`, the trigger `MonitorResultTrigger`, and the shared
+  `AbstractMetaplaneTask` base class.
 
 ## Documentation
 * Full documentation can be found under: [kestra.io/docs](https://kestra.io/docs)

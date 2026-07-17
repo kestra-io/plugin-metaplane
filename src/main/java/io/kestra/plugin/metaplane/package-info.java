@@ -1,6 +1,6 @@
 @PluginSubGroup(
     title = "Metaplane",
-    description = "Metaplane plugin for Kestra",
+    description = "Run and read data-observability monitors from Metaplane (https://metaplane.dev).",
     categories = PluginSubGroup.PluginCategory.DATA
 )
 package io.kestra.plugin.metaplane;
