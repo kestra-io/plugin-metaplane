@@ -99,6 +99,10 @@ import java.util.List;
 )
 public class Gate extends AbstractMetaplaneTask implements RunnableTask<Gate.Output> {
 
+    private static final Duration MAX_POLL_INTERVAL = Duration.ofHours(1);
+    private static final Duration MAX_TIMEOUT = Duration.ofHours(24);
+    private static final Duration MAX_MAX_AGE = Duration.ofHours(24);
+
     @Schema(
         title = "Monitor IDs to gate on",
         description = "UUIDs of the Metaplane monitors to poll and evaluate. Must contain at least one ID."
@@ -120,7 +124,7 @@ public class Gate extends AbstractMetaplaneTask implements RunnableTask<Gate.Out
     @Schema(
         title = "Delay between two polls",
         description = "ISO-8601 duration between poll rounds while runFirst is true and at least one monitor has " +
-            "not yet produced a fresh result. Must be strictly positive. Defaults to PT10S."
+            "not yet produced a fresh result. Must be strictly positive and at most PT1H (1 hour). Defaults to PT10S."
     )
     @PluginProperty(group = "reliability")
     @Builder.Default
@@ -130,7 +134,9 @@ public class Gate extends AbstractMetaplaneTask implements RunnableTask<Gate.Out
         title = "Maximum time to wait for a fresh result",
         description = "ISO-8601 duration. The task fails with an actionable error naming the still-pending " +
             "monitor(s) if this deadline elapses before every monitor has produced a fresh result. Must be " +
-            "strictly positive. Defaults to PT10M."
+            "strictly positive and at most PT24H (24 hours), since this task blocks the flow execution for its " +
+            "whole duration. Note the actual wait may end up to one pollInterval short of this value, since the " +
+            "loop only starts a new poll round if it can complete before the deadline. Defaults to PT10M."
     )
     @PluginProperty(group = "reliability")
     @Builder.Default
@@ -140,7 +146,8 @@ public class Gate extends AbstractMetaplaneTask implements RunnableTask<Gate.Out
         title = "Maximum acceptable age of a monitor's result",
         description = "ISO-8601 duration. Only applied when runFirst is false: a monitor whose result is older " +
             "than this age is flagged stale and its effective status is escalated to FAIL for the purposes of " +
-            "the gate, regardless of its reported status. Optional, no staleness check is performed by default."
+            "the gate, regardless of its reported status. Must be at most PT24H (24 hours). Optional, no " +
+            "staleness check is performed by default."
     )
     @PluginProperty(group = "reliability")
     private Property<Duration> maxAge;
@@ -182,13 +189,22 @@ public class Gate extends AbstractMetaplaneTask implements RunnableTask<Gate.Out
         if (rPollInterval.isZero() || rPollInterval.isNegative()) {
             throw new IllegalArgumentException("pollInterval must be strictly positive");
         }
+        if (rPollInterval.compareTo(MAX_POLL_INTERVAL) > 0) {
+            throw new IllegalArgumentException("pollInterval must not exceed " + MAX_POLL_INTERVAL);
+        }
 
         var rTimeout = runContext.render(timeout).as(Duration.class).orElse(Duration.ofMinutes(10));
         if (rTimeout.isZero() || rTimeout.isNegative()) {
             throw new IllegalArgumentException("timeout must be strictly positive");
         }
+        if (rTimeout.compareTo(MAX_TIMEOUT) > 0) {
+            throw new IllegalArgumentException("timeout must not exceed " + MAX_TIMEOUT);
+        }
 
         var rMaxAge = runContext.render(maxAge).as(Duration.class).orElse(null);
+        if (rMaxAge != null && rMaxAge.compareTo(MAX_MAX_AGE) > 0) {
+            throw new IllegalArgumentException("maxAge must not exceed " + MAX_MAX_AGE);
+        }
         var rRunFirst = runContext.render(runFirst).as(Boolean.class).orElse(false);
         var rFailStrategy = runContext.render(failStrategy).as(FailStrategy.class).orElse(FailStrategy.FAIL_IF_ANY);
         var rFailOn = runContext.render(failOn).asList(MonitorStatus.class);

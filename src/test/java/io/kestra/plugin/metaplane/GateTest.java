@@ -271,6 +271,39 @@ class GateTest extends AbstractMetaplaneTest {
     }
 
     @Test
+    void rejectsPollIntervalAboveUpperBound(WireMockRuntimeInfo wireMockRuntimeInfo) {
+        var task = baseGate(wireMockRuntimeInfo, List.of("monitor-1"))
+            .pollInterval(Property.ofValue(Duration.ofHours(2)))
+            .build();
+
+        var runContext = runContext();
+        var ex = assertThrows(IllegalArgumentException.class, () -> task.run(runContext));
+        assertThat(ex.getMessage(), containsString("pollInterval must not exceed"));
+    }
+
+    @Test
+    void rejectsTimeoutAboveUpperBound(WireMockRuntimeInfo wireMockRuntimeInfo) {
+        var task = baseGate(wireMockRuntimeInfo, List.of("monitor-1"))
+            .timeout(Property.ofValue(Duration.ofHours(25)))
+            .build();
+
+        var runContext = runContext();
+        var ex = assertThrows(IllegalArgumentException.class, () -> task.run(runContext));
+        assertThat(ex.getMessage(), containsString("timeout must not exceed"));
+    }
+
+    @Test
+    void rejectsMaxAgeAboveUpperBound(WireMockRuntimeInfo wireMockRuntimeInfo) {
+        var task = baseGate(wireMockRuntimeInfo, List.of("monitor-1"))
+            .maxAge(Property.ofValue(Duration.ofHours(25)))
+            .build();
+
+        var runContext = runContext();
+        var ex = assertThrows(IllegalArgumentException.class, () -> task.run(runContext));
+        assertThat(ex.getMessage(), containsString("maxAge must not exceed"));
+    }
+
+    @Test
     void surfacesClearExceptionWhenMonitorNeverRan(WireMockRuntimeInfo wireMockRuntimeInfo) {
         stubFor(get(urlPathEqualTo("/v2/monitors/status/never-run"))
             .willReturn(aResponse().withStatus(404).withBody("{\"message\":\"not found\"}")));
