@@ -304,6 +304,51 @@ class GateTest extends AbstractMetaplaneTest {
     }
 
     @Test
+    void acceptsPollIntervalAtUpperBound(WireMockRuntimeInfo wireMockRuntimeInfo) throws Exception {
+        stubGetJson("/v2/monitors/status/monitor-1", """
+            {"statuses":[{"status":"PASS"}],"isErrored":false,"timestamp":"2024-01-01T00:00:00Z"}
+            """);
+
+        var task = baseGate(wireMockRuntimeInfo, List.of("monitor-1"))
+            .pollInterval(Property.ofValue(Duration.ofHours(1)))
+            .build();
+
+        var output = task.run(runContext());
+
+        assertThat(output.isPassed(), is(true));
+    }
+
+    @Test
+    void acceptsTimeoutAtUpperBound(WireMockRuntimeInfo wireMockRuntimeInfo) throws Exception {
+        stubGetJson("/v2/monitors/status/monitor-1", """
+            {"statuses":[{"status":"PASS"}],"isErrored":false,"timestamp":"2024-01-01T00:00:00Z"}
+            """);
+
+        var task = baseGate(wireMockRuntimeInfo, List.of("monitor-1"))
+            .timeout(Property.ofValue(Duration.ofHours(24)))
+            .build();
+
+        var output = task.run(runContext());
+
+        assertThat(output.isPassed(), is(true));
+    }
+
+    @Test
+    void acceptsMaxAgeAtUpperBound(WireMockRuntimeInfo wireMockRuntimeInfo) throws Exception {
+        stubGetJson("/v2/monitors/status/monitor-1", """
+            {"statuses":[{"status":"PASS"}],"isErrored":false,"timestamp":"%s"}
+            """.formatted(Instant.now()));
+
+        var task = baseGate(wireMockRuntimeInfo, List.of("monitor-1"))
+            .maxAge(Property.ofValue(Duration.ofHours(24)))
+            .build();
+
+        var output = task.run(runContext());
+
+        assertThat(output.isPassed(), is(true));
+    }
+
+    @Test
     void surfacesClearExceptionWhenMonitorNeverRan(WireMockRuntimeInfo wireMockRuntimeInfo) {
         stubFor(get(urlPathEqualTo("/v2/monitors/status/never-run"))
             .willReturn(aResponse().withStatus(404).withBody("{\"message\":\"not found\"}")));
