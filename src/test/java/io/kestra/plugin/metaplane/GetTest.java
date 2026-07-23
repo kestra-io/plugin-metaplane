@@ -13,6 +13,7 @@ import static com.github.tomakehurst.wiremock.client.WireMock.stubFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
@@ -37,6 +38,8 @@ class GetTest extends AbstractMetaplaneTest {
         assertThat(output.getMonitorId(), is("3fa85f64-5717-4562-b3fc-2c963f66afa6"));
         assertThat(output.getStatus(), is(MonitorStatus.PASS));
         assertThat(output.getCheckedAt(), is(Instant.parse("2024-01-01T00:00:00Z")));
+        assertThat(output.getSeries(), hasSize(1));
+        assertThat(output.getSeries().getFirst().getStatus(), is(MonitorStatus.PASS));
     }
 
     @Test

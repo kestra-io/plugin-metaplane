@@ -29,19 +29,33 @@ the web app). Override it if Metaplane changes or adds hosts for your account.
   of an anomaly, it only reports `status`, the worst status across all of the monitor's group-by
   series (`PASS`, `IN_TRAINING`, `NOT_ENOUGH_DATA`, `FAILED_TO_PREDICT`, `INVALID_INPUT`, `ERROR`,
   `FAIL`, or `UNKNOWN` for any value not recognized yet), or `ERROR` if the underlying query itself
-  failed. Gate a pipeline on the result with a downstream
-  `io.kestra.plugin.core.execution.Fail` task conditioned on `outputs.<taskId>.status`. Fails with a
-  clear error if the monitor has never been run (the API returns HTTP 404 in that case). Since `Run`
-  only enqueues a monitor and does not wait for completion, insert a wait (e.g.
-  `io.kestra.plugin.core.flow.Pause`) between `Run` and `Get` in the same flow, or read the status once
-  you know a run has finished elsewhere (e.g. it runs on its own schedule) — see the
-  `MonitorResultTrigger` section below to react to a run as soon as it completes instead.
+  failed, plus the per-series breakdown (`series`). Gate a pipeline on the result with a downstream
+  `io.kestra.plugin.core.execution.Fail` task conditioned on `outputs.<taskId>.status`, or use the
+  `Gate` task below to fail the flow directly. Fails with a clear error if the monitor has never been
+  run (the API returns HTTP 404 in that case). Since `Run` only enqueues a monitor and does not wait
+  for completion, insert a wait (e.g. `io.kestra.plugin.core.flow.Pause`) between `Run` and `Get` in the
+  same flow, or read the status once you know a run has finished elsewhere (e.g. it runs on its own
+  schedule) — see the `MonitorResultTrigger` section below to react to a run as soon as it completes
+  instead, or `Gate` to poll for it synchronously in the same task.
 - **`List`** — lists the monitors defined for a given Metaplane connection (`connectionId`) via
   `GET /v1/monitors/connection/{connectionId}`, optionally filtered with `includeDisabled` and
   `fetchGroups`, with the standard `fetchType` semantics (`FETCH`, `FETCH_ONE`, `STORE`, `NONE`). The
   exact response shape isn't confirmed by Metaplane's official docs, so it accepts either a bare JSON
   array or an object wrapping the array under a `monitors` key, and fails with a clear error on any
   other shape.
+- **`Gate`** — synchronous quality gate for one or more monitors (`monitorIds`). When `runFirst` is
+  true, enqueues them (like `Run`) and polls each one (`pollInterval`, default `PT10S`) until its
+  status is fresh — its timestamp is at or after the moment `Gate` started — or `timeout` (default
+  `PT10M`) elapses, in which case it fails naming the still-pending monitor(s). When `runFirst` is
+  false, each monitor's current status is read once; setting `maxAge` then flags a result older than
+  that age as stale and escalates its effective status to `FAIL` for the gate, even though the reported
+  `status` in the output stays truthful. `failStrategy` decides how several monitors combine into a
+  single pass/fail decision: `FAIL_FAST` (stop polling as soon as one monitor's effective status is in
+  `failOn`, leaving monitors never reached with only their `monitorId` populated in the output),
+  `FAIL_IF_ANY` (default), `FAIL_IF_ALL`, or `NONE` (never fails, still reports). `failOn` (default
+  `FAIL`, `ERROR`) lists which statuses count as failing. Outputs `passed`, `failedMonitorIds`, and a
+  per-monitor `monitors` list with each monitor's `status`, `checkedAt`, `stale` flag, and `series`
+  breakdown.
 
 ## Triggers
 

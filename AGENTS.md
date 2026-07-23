@@ -3,9 +3,9 @@
 ## What
 
 - Provides plugin components under `io.kestra.plugin.metaplane`.
-- Includes the tasks `Run`, `Get`, `List`, the trigger `MonitorResultTrigger`, the shared
+- Includes the tasks `Run`, `Get`, `List`, `Gate`, the trigger `MonitorResultTrigger`, the shared
   `AbstractMetaplaneTask` base class, and the response models `Monitor`, `MonitorStatusResponse`,
-  `MonitorStatus`.
+  `MonitorStatus`, `SeriesStatus`, `FailStrategy`.
 
 ## Why
 
@@ -36,12 +36,19 @@ changes or adds hosts. No official Java SDK exists, so calls use Kestra's intern
 - `io.kestra.plugin.metaplane.AbstractMetaplaneTask` — shared apiToken/baseUrl properties, HTTP
   request plumbing, and error handling (401/403 → invalid token, 404 on the status endpoint → "monitor
   has no run history yet"). Exposes static helpers reused by `MonitorResultTrigger`, which cannot
-  extend it since it extends `AbstractTrigger` instead of `Task`.
-- `io.kestra.plugin.metaplane.Run` — enqueues one or more monitors to run now (`POST /v1/monitors/run`).
+  extend it since it extends `AbstractTrigger` instead of `Task`, and by `Gate` (`enqueueMonitors`,
+  shared with `Run`).
+- `io.kestra.plugin.metaplane.Run` — enqueues one or more monitors to run now (`POST /v1/monitors/run`),
+  via the shared `AbstractMetaplaneTask.enqueueMonitors` helper.
 - `io.kestra.plugin.metaplane.Get` — reads a monitor's latest status (`GET /v2/monitors/status/{id}`),
-  a pure read task; gating is left to the flow.
+  a pure read task; gating is left to the flow. Output includes the per-series breakdown (`series`).
 - `io.kestra.plugin.metaplane.List` — lists monitors for a given connection
   (`GET /v1/monitors/connection/{connectionId}`), with `fetchType` semantics.
+- `io.kestra.plugin.metaplane.Gate` — synchronous quality gate: optionally enqueues monitors
+  (`runFirst`), polls each until its result is fresh (timestamp at or after the task's start) or
+  `timeout` elapses, applies an optional `maxAge` staleness check (only when `runFirst` is false), and
+  combines every monitor's effective status via `failStrategy` (`FailStrategy`: `FAIL_FAST`,
+  `FAIL_IF_ANY`, `FAIL_IF_ALL`, `NONE`) to decide whether the gate passes.
 - `io.kestra.plugin.metaplane.MonitorResultTrigger` — polling trigger, fires only when a monitor's
   status changes since the last poll (dedup via namespace KV store).
 

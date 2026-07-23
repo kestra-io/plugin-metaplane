@@ -16,6 +16,7 @@ import lombok.ToString;
 import lombok.experimental.SuperBuilder;
 
 import java.time.Instant;
+import java.util.List;
 
 @SuperBuilder
 @ToString
@@ -94,6 +95,7 @@ public class Get extends AbstractMetaplaneTask implements RunnableTask<Get.Outpu
             .monitorId(rMonitorId)
             .status(status.overallStatus())
             .checkedAt(status.getTimestamp())
+            .series(status.getStatuses())
             .build();
     }
 
@@ -115,5 +117,8 @@ public class Get extends AbstractMetaplaneTask implements RunnableTask<Get.Outpu
 
         @Schema(title = "Timestamp of the monitor's most recent run, if reported by the API")
         private final Instant checkedAt;
+
+        @Schema(title = "Per-series status", description = "Status of each of the monitor's group-by series.")
+        private final List<SeriesStatus> series;
     }
 }
