@@ -1,6 +1,5 @@
 package io.kestra.plugin.metaplane;
 
-import io.kestra.core.http.HttpRequest;
 import io.kestra.core.models.annotations.Example;
 import io.kestra.core.models.annotations.Plugin;
 import io.kestra.core.models.annotations.PluginProperty;
@@ -16,9 +15,7 @@ import lombok.NoArgsConstructor;
 import lombok.ToString;
 import lombok.experimental.SuperBuilder;
 
-import java.net.URI;
 import java.util.List;
-import java.util.Map;
 
 @SuperBuilder
 @ToString
@@ -86,17 +83,10 @@ public class Run extends AbstractMetaplaneTask implements RunnableTask<Run.Outpu
         }
 
         var rBaseUrl = renderBaseUrl(runContext);
-        var url = join(rBaseUrl, "v1/monitors/run");
 
         logger.info("Enqueuing {} Metaplane monitor(s) to run: {}", rMonitorIds.size(), rMonitorIds);
 
-        var requestBuilder = HttpRequest.builder()
-            .uri(URI.create(url))
-            .method("POST")
-            .body(HttpRequest.JsonRequestBody.of(Map.of("testIds", rMonitorIds)));
-
-        // The response body is not used: the API only confirms enqueueing (HTTP 200), it does not return a run id.
-        request(runContext, requestBuilder, String.class);
+        enqueueMonitors(runContext, this.options, renderApiToken(runContext), rBaseUrl, rMonitorIds);
 
         logger.info("Monitor(s) enqueued successfully");
 

@@ -32,6 +32,7 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Shared authentication, HTTP plumbing, and error handling for all Metaplane tasks.
@@ -230,6 +231,27 @@ public abstract class AbstractMetaplaneTask extends Task {
      */
     public static String join(String base, String path) {
         return base.replaceAll("/+$", "") + "/" + path.replaceAll("^/+", "");
+    }
+
+    /**
+     * Shared "enqueue monitors to run now" call used by both {@link Run} and {@link Gate}, so the
+     * POST /v1/monitors/run request shape lives in a single place.
+     */
+    public static void enqueueMonitors(
+        RunContext runContext,
+        HttpConfiguration options,
+        String apiToken,
+        String baseUrl,
+        List<String> monitorIds
+    ) throws Exception {
+        var url = join(baseUrl, "v1/monitors/run");
+        var requestBuilder = HttpRequest.builder()
+            .uri(URI.create(url))
+            .method("POST")
+            .body(HttpRequest.JsonRequestBody.of(Map.of("testIds", monitorIds)));
+
+        // The response body is not used: the API only confirms enqueueing (HTTP 200), it does not return a run id.
+        request(runContext, options, apiToken, requestBuilder, String.class);
     }
 
     /**
