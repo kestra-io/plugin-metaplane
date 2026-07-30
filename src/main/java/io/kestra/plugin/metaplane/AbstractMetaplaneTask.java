@@ -141,10 +141,14 @@ public abstract class AbstractMetaplaneTask extends Task {
         try (var client = new HttpClient(runContext, configBuilder.build())) {
             var response = client.request(request, String.class);
 
+            var body = response.getBody();
+            if (body == null || body.isBlank()) {
+                // An empty 200 must still parse: an array type falls back to "[]", anything else to "{}".
+                body = responseType.isArray() ? "[]" : "{}";
+            }
+
             @SuppressWarnings("unchecked")
-            RES parsedResponse = responseType == String.class
-                ? (RES) response.getBody()
-                : MAPPER.readValue(response.getBody() != null ? response.getBody() : "{}", responseType);
+            RES parsedResponse = responseType == String.class ? (RES) response.getBody() : MAPPER.readValue(body, responseType);
 
             return HttpResponse.<RES>builder()
                 .request(request)
