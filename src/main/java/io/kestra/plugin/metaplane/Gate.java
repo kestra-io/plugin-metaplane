@@ -22,6 +22,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Optional;
 
 @SuperBuilder
 @ToString
@@ -160,10 +161,12 @@ public class Gate extends AbstractMetaplaneTask implements RunnableTask<Gate.Out
     @Schema(
         title = "Maximum time to wait for a fresh result",
         description = "ISO-8601 duration. The task fails with an actionable error naming the still-pending " +
-            "monitor(s) if this deadline elapses before every monitor has produced a fresh result. Must be " +
-            "strictly positive and at most PT24H (24 hours), since this task blocks the flow execution for its " +
-            "whole duration. Note the actual wait may end up to one pollInterval short of this value, since the " +
-            "loop only starts a new poll round if it can complete before the deadline. Defaults to PT10M."
+            "monitor(s) if this deadline elapses before every monitor has produced a fresh result. In perGroup " +
+            "mode it also bounds the per-group evaluation-history fan-out, which is checked against this deadline " +
+            "between group reads. Must be strictly positive and at most PT24H (24 hours), since this task blocks " +
+            "the flow execution for its whole duration. Note the actual wait may end up to one pollInterval short " +
+            "of this value, since the loop only starts a new poll round if it can complete before the deadline. " +
+            "Defaults to PT10M."
     )
     @PluginProperty(group = "reliability")
     @Builder.Default
@@ -382,23 +385,28 @@ public class Gate extends AbstractMetaplaneTask implements RunnableTask<Gate.Out
 
         var series = status.getStatuses();
         if (series == null || series.isEmpty()) {
-            return new MonitorEvaluation(status, MonitorStatus.UNKNOWN, false, List.of());
+            // No groups to evaluate: still honor staleness so an empty, stale monitor fails like monitor-level.
+            var stale = isStale(status, policy.maxAge(), policy.runFirst());
+            return new MonitorEvaluation(status, stale ? MonitorStatus.FAIL : MonitorStatus.UNKNOWN, stale, List.of());
         }
 
         var groupResults = new ArrayList<GroupResult>();
         for (var s : series) {
             if (Instant.now().isAfter(deadline)) {
                 throw new IllegalStateException(
-                    "Timed out reading per-group evaluation history for Metaplane monitor " + monitorId +
-                        " (monitor has " + series.size() + " group(s)). Lower the monitor's group-by cardinality " +
-                        "or increase timeout."
+                    "Per-group evaluation of Metaplane monitor " + monitorId + " (monitor has " + series.size() +
+                        " group(s)) exceeded timeout. This can be slow group fan-out or time already spent polling; " +
+                        "increase timeout or lower the monitor's group-by cardinality."
                 );
             }
 
             var history = fetchLatestGroupEvaluation(conn, monitorId, s.getGroups());
             var evaluatedAt = history.length > 0 ? history[0].getCreatedAt() : null;
-            // Use the history record's status so it matches evaluatedAt; fall back to the series status.
-            var groupStatus = history.length > 0 && history[0].getStatus() != null ? history[0].getStatus() : s.getStatus();
+            // Prefer the history record's status so it matches evaluatedAt; fall back to the series status,
+            // then UNKNOWN, so a series with no status anywhere never NPEs the worstOf reduce below.
+            var groupStatus = Optional.ofNullable(history.length > 0 ? history[0].getStatus() : null)
+                .or(() -> Optional.ofNullable(s.getStatus()))
+                .orElse(MonitorStatus.UNKNOWN);
 
             groupResults.add(GroupResult.builder()
                 .groups(s.getGroups())

@@ -141,10 +141,13 @@ public abstract class AbstractMetaplaneTask extends Task {
         try (var client = new HttpClient(runContext, configBuilder.build())) {
             var response = client.request(request, String.class);
 
+            // Only array types treat an empty 200 as "[]" (no rows). Object types keep the strict null->"{}"
+            // fallback so a blank body still surfaces as a clear parse error rather than an all-null object.
             var body = response.getBody();
-            if (body == null || body.isBlank()) {
-                // An empty 200 must still parse: an array type falls back to "[]", anything else to "{}".
-                body = responseType.isArray() ? "[]" : "{}";
+            if (responseType.isArray() && (body == null || body.isBlank())) {
+                body = "[]";
+            } else if (body == null) {
+                body = "{}";
             }
 
             @SuppressWarnings("unchecked")
@@ -241,16 +244,18 @@ public abstract class AbstractMetaplaneTask extends Task {
     }
 
     /**
-     * Reads a group's latest evaluation from POST /v1/monitors/evaluation-history/{monitorId}, the only
-     * source of a per-group timestamp. {@code groups} is the v2 {@link SeriesStatus#getGroups()} node,
-     * echoed verbatim as the "groupings" body field (null for an ungrouped series). Newest first, capped
-     * at one; empty when the group has no history.
+     * Reads a group's latest evaluation from POST /v1/monitors/evaluation-history/{monitorId}
+     * (https://docs.metaplane.dev/reference/getevaluationhistory), the only source of a per-group
+     * timestamp. {@code groups} is the v2 {@link SeriesStatus#getGroups()} node, echoed verbatim as the
+     * "groupings" body field, and omitted for an ungrouped series (null or empty) so the monitor's
+     * overall history is returned instead of filtering on an empty grouping. Newest first, capped at one;
+     * empty when the group has no history.
      */
     public static EvaluationHistoryEntry[] fetchLatestGroupEvaluation(Connection conn, String monitorId, JsonNode groups) throws Exception {
         var url = join(conn.baseUrl(), "v1/monitors/evaluation-history/" + URLEncoder.encode(monitorId, StandardCharsets.UTF_8));
 
         var body = new LinkedHashMap<String, Object>();
-        if (groups != null && !groups.isNull()) {
+        if (groups != null && !groups.isNull() && !groups.isEmpty()) {
             body.put("groupings", groups);
         }
         body.put("sortOrder", "DESC");

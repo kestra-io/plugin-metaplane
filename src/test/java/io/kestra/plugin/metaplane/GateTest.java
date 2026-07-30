@@ -2,6 +2,7 @@ package io.kestra.plugin.metaplane;
 
 import com.github.tomakehurst.wiremock.junit5.WireMockRuntimeInfo;
 import com.github.tomakehurst.wiremock.stubbing.Scenario;
+import io.kestra.core.http.client.HttpClientResponseException;
 import io.kestra.core.models.property.Property;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Execution;
@@ -16,6 +17,7 @@ import static com.github.tomakehurst.wiremock.client.WireMock.equalToJson;
 import static com.github.tomakehurst.wiremock.client.WireMock.get;
 import static com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.matchingJsonPath;
+import static com.github.tomakehurst.wiremock.client.WireMock.notMatching;
 import static com.github.tomakehurst.wiremock.client.WireMock.okJson;
 import static com.github.tomakehurst.wiremock.client.WireMock.post;
 import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
@@ -538,6 +540,9 @@ class GateTest extends AbstractMetaplaneTest {
         assertThat(output.isPassed(), is(true));
         assertThat(output.getMonitors().getFirst().getGroups(), hasSize(1));
         assertThat(output.getMonitors().getFirst().getGroups().getFirst().isGhost(), is(false));
+        // The groupings field must be omitted entirely for an ungrouped series, not sent as [].
+        verify(postRequestedFor(urlPathEqualTo("/v1/monitors/evaluation-history/monitor-1"))
+            .withRequestBody(notMatching(".*groupings.*")));
     }
 
     @Test
@@ -562,7 +567,8 @@ class GateTest extends AbstractMetaplaneTest {
 
         var runContext = runContext();
         var ex = assertThrows(IllegalStateException.class, () -> task.run(runContext));
-        assertThat(ex.getMessage(), containsString("Timed out reading per-group evaluation history"));
+        assertThat(ex.getMessage(), containsString("Per-group evaluation of Metaplane monitor"));
+        assertThat(ex.getMessage(), containsString("exceeded timeout"));
     }
 
     @Test
@@ -579,6 +585,62 @@ class GateTest extends AbstractMetaplaneTest {
             .build();
 
         var runContext = runContext();
-        assertThrows(Exception.class, () -> task.run(runContext));
+        var ex = assertThrows(HttpClientResponseException.class, () -> task.run(runContext));
+        assertThat(ex.getMessage(), containsString("500"));
+    }
+
+    @Test
+    void perGroupFailFastStopsAtFailingGroup(WireMockRuntimeInfo wireMockRuntimeInfo) throws Exception {
+        // monitor-a has a live failing group; FAIL_FAST must stop before monitor-b is ever fetched.
+        stubGetJson("/v2/monitors/status/monitor-a", """
+            {"statuses":[{"status":"FAIL","groups":[{"name":"region","value":"US"}]}],"isErrored":false,"timestamp":"%s"}
+            """.formatted(Instant.now()));
+        stubFor(post(urlPathEqualTo("/v1/monitors/evaluation-history/monitor-a"))
+            .willReturn(okJson("[{\"status\":\"FAIL\",\"createdAt\":\"%s\"}]".formatted(Instant.now()))));
+
+        var task = baseGate(wireMockRuntimeInfo, List.of("monitor-a", "monitor-b"))
+            .perGroup(Property.ofValue(true))
+            .maxAge(Property.ofValue(Duration.ofHours(1)))
+            .failStrategy(Property.ofValue(FailStrategy.FAIL_FAST))
+            .build();
+
+        var output = task.run(runContext());
+
+        assertThat(output.isPassed(), is(false));
+        assertThat(output.getFailedMonitorIds(), is(List.of("monitor-a")));
+        assertThat(output.getMonitors(), hasSize(2));
+        assertThat(output.getMonitors().get(1).getMonitorId(), is("monitor-b"));
+        assertThat(output.getMonitors().get(1).getStatus(), is((MonitorStatus) null));
+        verify(0, getRequestedFor(urlPathEqualTo("/v2/monitors/status/monitor-b")));
+    }
+
+    @Test
+    void perGroupTreatsEmptyHistoryAsGhost(WireMockRuntimeInfo wireMockRuntimeInfo) throws Exception {
+        // US has fresh history (live); DE returns an empty history array -> evaluatedAt null -> ghost.
+        stubGetJson("/v2/monitors/status/monitor-1", """
+            {"statuses":[
+              {"status":"PASS","groups":[{"name":"region","value":"US"}]},
+              {"status":"PASS","groups":[{"name":"region","value":"DE"}]}
+            ],"isErrored":false,"timestamp":"%s"}
+            """.formatted(Instant.now()));
+        stubFor(post(urlPathEqualTo("/v1/monitors/evaluation-history/monitor-1"))
+            .withRequestBody(matchingJsonPath("$.groupings[?(@.value == 'US')]"))
+            .willReturn(okJson("[{\"status\":\"PASS\",\"createdAt\":\"%s\"}]".formatted(Instant.now()))));
+        stubFor(post(urlPathEqualTo("/v1/monitors/evaluation-history/monitor-1"))
+            .withRequestBody(matchingJsonPath("$.groupings[?(@.value == 'DE')]"))
+            .willReturn(okJson("[]")));
+
+        var task = baseGate(wireMockRuntimeInfo, List.of("monitor-1"))
+            .perGroup(Property.ofValue(true))
+            .maxAge(Property.ofValue(Duration.ofHours(1)))
+            .build();
+
+        var output = task.run(runContext());
+
+        assertThat(output.isPassed(), is(true));
+        var groups = output.getMonitors().getFirst().getGroups();
+        assertThat(groups.get(0).isGhost(), is(false));
+        assertThat(groups.get(1).isGhost(), is(true));
+        assertThat(groups.get(1).getEvaluatedAt(), is((java.time.Instant) null));
     }
 }
