@@ -7,13 +7,8 @@ import lombok.NoArgsConstructor;
 import java.time.Instant;
 
 /**
- * One record from POST /v1/monitors/evaluation-history/{monitorId}
- * (https://docs.metaplane.dev/reference/getevaluationhistory). Used by {@link Gate}'s per-group
- * evaluation to read each group's latest evaluation timestamp, since the v2 status endpoint carries
- * only a single monitor-level timestamp and cannot tell a live group from a stale "ghost" one.
- *
- * <p>Only the two fields Gate needs are mapped. The endpoint also returns result, lowerBound,
- * upperBound, predicted, passed, openRelatedIncidents, errorMessage, and annotation, which are ignored.
+ * One record from POST /v1/monitors/evaluation-history/{monitorId}. {@link Gate}'s per-group mode uses
+ * it to read a group's latest evaluation time; other response fields are ignored.
  */
 @Data
 @NoArgsConstructor
