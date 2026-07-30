@@ -1,6 +1,7 @@
 package io.kestra.plugin.metaplane;
 
 import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.kestra.core.exceptions.IllegalVariableEvaluationException;
 import io.kestra.core.http.HttpRequest;
@@ -31,6 +32,7 @@ import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -223,6 +225,43 @@ public abstract class AbstractMetaplaneTask extends Task {
             }
             throw e;
         }
+    }
+
+    /**
+     * Reads a single group's latest evaluation from POST /v1/monitors/evaluation-history/{monitorId}.
+     * The v2 status endpoint carries only one monitor-level timestamp, so this per-group history is the
+     * only way to tell a live group from a stale "ghost" one. Used by {@link Gate}'s per-group mode.
+     *
+     * @param groups the group-by labels identifying the series, taken straight from the v2 status
+     *               response's {@link SeriesStatus#getGroups()}. Its shape (an array of {name, value}
+     *               objects) already matches the endpoint's "groupings" body field, so it is echoed
+     *               back verbatim. Null for an ungrouped series, which yields the monitor's overall history.
+     * @return the evaluation records, newest first, capped at one; empty when the group has no history.
+     */
+    public static EvaluationHistoryEntry[] fetchLatestGroupEvaluation(
+        RunContext runContext,
+        HttpConfiguration options,
+        String apiToken,
+        String baseUrl,
+        String monitorId,
+        JsonNode groups
+    ) throws Exception {
+        var url = join(baseUrl, "v1/monitors/evaluation-history/" + URLEncoder.encode(monitorId, StandardCharsets.UTF_8));
+
+        var body = new LinkedHashMap<String, Object>();
+        if (groups != null && !groups.isNull()) {
+            body.put("groupings", groups);
+        }
+        body.put("sortOrder", "DESC");
+        body.put("limit", 1);
+
+        var requestBuilder = HttpRequest.builder()
+            .uri(URI.create(url))
+            .method("POST")
+            .body(HttpRequest.JsonRequestBody.of(body));
+
+        var entries = request(runContext, options, apiToken, requestBuilder, EvaluationHistoryEntry[].class).getBody();
+        return entries != null ? entries : new EvaluationHistoryEntry[0];
     }
 
     /**

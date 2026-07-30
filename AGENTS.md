@@ -5,7 +5,7 @@
 - Provides plugin components under `io.kestra.plugin.metaplane`.
 - Includes the tasks `Run`, `Get`, `List`, `Gate`, the trigger `MonitorResultTrigger`, the shared
   `AbstractMetaplaneTask` base class, and the response models `Monitor`, `MonitorStatusResponse`,
-  `MonitorStatus`, `SeriesStatus`, `FailStrategy`.
+  `MonitorStatus`, `SeriesStatus`, `EvaluationHistoryEntry`, `FailStrategy`.
 
 ## Why
 
@@ -48,7 +48,11 @@ changes or adds hosts. No official Java SDK exists, so calls use Kestra's intern
   (`runFirst`), polls each until its result is fresh (timestamp at or after the task's start) or
   `timeout` elapses, applies an optional `maxAge` staleness check (only when `runFirst` is false), and
   combines every monitor's effective status via `failStrategy` (`FailStrategy`: `FAIL_FAST`,
-  `FAIL_IF_ANY`, `FAIL_IF_ALL`, `NONE`) to decide whether the gate passes.
+  `FAIL_IF_ANY`, `FAIL_IF_ALL`, `NONE`) to decide whether the gate passes. With `perGroup`, grouped
+  monitors are evaluated per group: each group's latest evaluation timestamp is read from
+  `POST /v1/monitors/evaluation-history/{id}` (one call per group), stale "ghost" groups (older than
+  `maxAge`, or predating the task start when `runFirst`) are excluded, and only the live groups are
+  combined. `maxAge` is required when `perGroup` is true and `runFirst` is false.
 - `io.kestra.plugin.metaplane.MonitorResultTrigger` — polling trigger, fires only when a monitor's
   status changes since the last poll (dedup via namespace KV store).
 

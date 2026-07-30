@@ -15,6 +15,7 @@ import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
 import static com.github.tomakehurst.wiremock.client.WireMock.equalToJson;
 import static com.github.tomakehurst.wiremock.client.WireMock.get;
 import static com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor;
+import static com.github.tomakehurst.wiremock.client.WireMock.matchingJsonPath;
 import static com.github.tomakehurst.wiremock.client.WireMock.okJson;
 import static com.github.tomakehurst.wiremock.client.WireMock.post;
 import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
@@ -358,5 +359,115 @@ class GateTest extends AbstractMetaplaneTest {
         var runContext = runContext();
         var ex = assertThrows(IllegalStateException.class, () -> task.run(runContext));
         assertThat(ex.getMessage(), containsString("has no run history yet"));
+    }
+
+    @Test
+    void perGroupExcludesGhostGroupSoGatePasses(WireMockRuntimeInfo wireMockRuntimeInfo) throws Exception {
+        // One live group passing plus one stale ghost group failing. The raw monitor status is FAIL, but
+        // the gate should pass because only the live group counts.
+        stubGetJson("/v2/monitors/status/monitor-1", """
+            {"statuses":[
+              {"status":"PASS","groups":[{"name":"region","value":"US"}]},
+              {"status":"FAIL","groups":[{"name":"region","value":"CA"}]}
+            ],"isErrored":false,"timestamp":"%s"}
+            """.formatted(Instant.now()));
+
+        stubFor(post(urlPathEqualTo("/v1/monitors/evaluation-history/monitor-1"))
+            .withRequestBody(matchingJsonPath("$.groupings[?(@.value == 'US')]"))
+            .willReturn(okJson("[{\"status\":\"PASS\",\"createdAt\":\"%s\"}]".formatted(Instant.now()))));
+        stubFor(post(urlPathEqualTo("/v1/monitors/evaluation-history/monitor-1"))
+            .withRequestBody(matchingJsonPath("$.groupings[?(@.value == 'CA')]"))
+            .willReturn(okJson("[{\"status\":\"FAIL\",\"createdAt\":\"%s\"}]".formatted(Instant.now().minus(Duration.ofHours(2))))));
+
+        var task = baseGate(wireMockRuntimeInfo, List.of("monitor-1"))
+            .perGroup(Property.ofValue(true))
+            .maxAge(Property.ofValue(Duration.ofHours(1)))
+            .build();
+
+        var output = task.run(runContext());
+
+        assertThat(output.isPassed(), is(true));
+        assertThat(output.getFailedMonitorIds(), empty());
+
+        var groups = output.getMonitors().getFirst().getGroups();
+        assertThat(groups, hasSize(2));
+        assertThat(groups.get(0).isGhost(), is(false));
+        assertThat(groups.get(0).getStatus(), is(MonitorStatus.PASS));
+        assertThat(groups.get(1).isGhost(), is(true));
+        assertThat(groups.get(1).getStatus(), is(MonitorStatus.FAIL));
+        // Raw monitor-level status stays truthful even though the ghost is excluded from the decision.
+        assertThat(output.getMonitors().getFirst().getStatus(), is(MonitorStatus.FAIL));
+    }
+
+    @Test
+    void perGroupFailsWhenLiveGroupFails(WireMockRuntimeInfo wireMockRuntimeInfo) throws Exception {
+        // The live group fails and the ghost group passes: excluding the ghost must not rescue the gate.
+        stubGetJson("/v2/monitors/status/monitor-1", """
+            {"statuses":[
+              {"status":"FAIL","groups":[{"name":"region","value":"US"}]},
+              {"status":"PASS","groups":[{"name":"region","value":"CA"}]}
+            ],"isErrored":false,"timestamp":"%s"}
+            """.formatted(Instant.now()));
+
+        stubFor(post(urlPathEqualTo("/v1/monitors/evaluation-history/monitor-1"))
+            .withRequestBody(matchingJsonPath("$.groupings[?(@.value == 'US')]"))
+            .willReturn(okJson("[{\"status\":\"FAIL\",\"createdAt\":\"%s\"}]".formatted(Instant.now()))));
+        stubFor(post(urlPathEqualTo("/v1/monitors/evaluation-history/monitor-1"))
+            .withRequestBody(matchingJsonPath("$.groupings[?(@.value == 'CA')]"))
+            .willReturn(okJson("[{\"status\":\"PASS\",\"createdAt\":\"%s\"}]".formatted(Instant.now().minus(Duration.ofHours(2))))));
+
+        var task = baseGate(wireMockRuntimeInfo, List.of("monitor-1"))
+            .perGroup(Property.ofValue(true))
+            .maxAge(Property.ofValue(Duration.ofHours(1)))
+            .build();
+
+        var output = task.run(runContext());
+
+        assertThat(output.isPassed(), is(false));
+        assertThat(output.getFailedMonitorIds(), is(List.of("monitor-1")));
+    }
+
+    @Test
+    void perGroupWithRunFirstUsesTaskStartAsGhostThreshold(WireMockRuntimeInfo wireMockRuntimeInfo) throws Exception {
+        stubFor(post(urlPathEqualTo("/v1/monitors/run")).willReturn(okJson("{}")));
+
+        stubGetJson("/v2/monitors/status/monitor-1", """
+            {"statuses":[
+              {"status":"PASS","groups":[{"name":"region","value":"US"}]},
+              {"status":"FAIL","groups":[{"name":"region","value":"CA"}]}
+            ],"isErrored":false,"timestamp":"%s"}
+            """.formatted(Instant.now().plusSeconds(3600)));
+
+        // Live group re-evaluated after this run started; ghost group's last evaluation is years old.
+        stubFor(post(urlPathEqualTo("/v1/monitors/evaluation-history/monitor-1"))
+            .withRequestBody(matchingJsonPath("$.groupings[?(@.value == 'US')]"))
+            .willReturn(okJson("[{\"status\":\"PASS\",\"createdAt\":\"%s\"}]".formatted(Instant.now().plusSeconds(3600)))));
+        stubFor(post(urlPathEqualTo("/v1/monitors/evaluation-history/monitor-1"))
+            .withRequestBody(matchingJsonPath("$.groupings[?(@.value == 'CA')]"))
+            .willReturn(okJson("[{\"status\":\"FAIL\",\"createdAt\":\"2000-01-01T00:00:00Z\"}]")));
+
+        var task = baseGate(wireMockRuntimeInfo, List.of("monitor-1"))
+            .runFirst(Property.ofValue(true))
+            .perGroup(Property.ofValue(true))
+            .build();
+
+        var output = task.run(runContext());
+
+        assertThat(output.isPassed(), is(true));
+        assertThat(output.getFailedMonitorIds(), empty());
+        var groups = output.getMonitors().getFirst().getGroups();
+        assertThat(groups.get(0).isGhost(), is(false));
+        assertThat(groups.get(1).isGhost(), is(true));
+    }
+
+    @Test
+    void perGroupRequiresMaxAgeWhenNotRunFirst(WireMockRuntimeInfo wireMockRuntimeInfo) {
+        var task = baseGate(wireMockRuntimeInfo, List.of("monitor-1"))
+            .perGroup(Property.ofValue(true))
+            .build();
+
+        var runContext = runContext();
+        var ex = assertThrows(IllegalArgumentException.class, () -> task.run(runContext));
+        assertThat(ex.getMessage(), containsString("maxAge is required when perGroup is true"));
     }
 }
