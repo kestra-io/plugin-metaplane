@@ -210,7 +210,8 @@ public class Gate extends AbstractMetaplaneTask implements RunnableTask<Gate.Out
             The gate reads every group's latest evaluation timestamp and drops the ones that are stale
             ("ghost" groups: still reported by the monitor but no longer produced by the query), so a dead
             group can no longer fail the gate on its own. Only the live groups are combined into the
-            monitor's status.
+            monitor's status. A group-by query that is itself failing is reported as ERROR, and a monitor
+            whose groups are all ghosts is treated as failing, so it never silently passes the gate.
 
             A group is considered a ghost when its latest evaluation is older than maxAge (when runFirst is
             false), or predates this task's start (when runFirst is true, since a fresh run only re-evaluates
@@ -277,6 +278,8 @@ public class Gate extends AbstractMetaplaneTask implements RunnableTask<Gate.Out
         }
 
         var deadline = start.plus(rTimeout);
+        var conn = new Connection(runContext, this.options, rApiToken, rBaseUrl);
+        var ghostPolicy = new GhostPolicy(start, rMaxAge, rRunFirst);
         var pending = new LinkedHashSet<>(rMonitorIds);
         var resolved = new LinkedHashMap<String, MonitorEvaluation>();
         var failFastTriggered = false;
@@ -288,7 +291,7 @@ public class Gate extends AbstractMetaplaneTask implements RunnableTask<Gate.Out
 
                 if (!rRunFirst || (status.getTimestamp() != null && !status.getTimestamp().isBefore(start))) {
                     var evaluation = rPerGroup
-                        ? evaluatePerGroup(runContext, rApiToken, rBaseUrl, monitorId, status, start, rMaxAge, rRunFirst)
+                        ? evaluatePerGroup(conn, ghostPolicy, deadline, monitorId, status)
                         : evaluateMonitorLevel(status, rMaxAge, rRunFirst);
                     resolved.put(monitorId, evaluation);
                     pending.remove(monitorId);
@@ -378,20 +381,16 @@ public class Gate extends AbstractMetaplaneTask implements RunnableTask<Gate.Out
     }
 
     /**
-     * Per-group evaluation: reads each group's latest evaluation timestamp, flags the stale ones as
-     * ghosts, and combines only the live groups' statuses into the monitor's effective status. A monitor
-     * with every group stale resolves to UNKNOWN, which the default failOn treats as passing.
+     * Per-group evaluation: reads each group's latest evaluation, flags the stale ones as ghosts, and
+     * combines only the live groups' statuses into the monitor's effective status. A failing group-by
+     * query (isErrored) short-circuits to ERROR, and a monitor whose groups are all ghosts escalates to
+     * FAIL so a fully-stale grouped monitor never silently passes the gate.
      */
-    private MonitorEvaluation evaluatePerGroup(
-        RunContext runContext,
-        String apiToken,
-        String baseUrl,
-        String monitorId,
-        MonitorStatusResponse status,
-        Instant start,
-        Duration maxAge,
-        boolean runFirst
-    ) throws Exception {
+    private static MonitorEvaluation evaluatePerGroup(Connection conn, GhostPolicy policy, Instant deadline, String monitorId, MonitorStatusResponse status) throws Exception {
+        if (status.isErrored()) {
+            return new MonitorEvaluation(status, MonitorStatus.ERROR, false, List.of());
+        }
+
         var series = status.getStatuses();
         if (series == null || series.isEmpty()) {
             return new MonitorEvaluation(status, MonitorStatus.UNKNOWN, false, List.of());
@@ -399,24 +398,33 @@ public class Gate extends AbstractMetaplaneTask implements RunnableTask<Gate.Out
 
         var groupResults = new ArrayList<GroupResult>();
         for (var s : series) {
-            var history = fetchLatestGroupEvaluation(runContext, this.options, apiToken, baseUrl, monitorId, s.getGroups());
+            if (Instant.now().isAfter(deadline)) {
+                throw new IllegalStateException(
+                    "Timed out reading per-group evaluation history for Metaplane monitor " + monitorId + " (" +
+                        series.size() + " group(s)). Lower the monitor's group-by cardinality or increase timeout."
+                );
+            }
+
+            var history = fetchLatestGroupEvaluation(conn, monitorId, s.getGroups());
             var evaluatedAt = history.length > 0 ? history[0].getCreatedAt() : null;
-            var ghost = isGroupGhost(evaluatedAt, start, maxAge, runFirst);
+            // Prefer the history record's own status so it lines up with the timestamp the ghost decision
+            // uses; fall back to the v2 series status when the group has no history.
+            var groupStatus = history.length > 0 && history[0].getStatus() != null ? history[0].getStatus() : s.getStatus();
 
             groupResults.add(GroupResult.builder()
                 .groups(s.getGroups())
-                .status(s.getStatus())
+                .status(groupStatus)
                 .evaluatedAt(evaluatedAt)
-                .ghost(ghost)
+                .ghost(policy.isGhost(evaluatedAt))
                 .build());
         }
 
-        var effective = groupResults.stream()
-            .filter(g -> !g.isGhost())
-            .map(GroupResult::getStatus)
-            .reduce(MonitorStatus::worstOf)
-            .orElse(MonitorStatus.UNKNOWN);
+        var live = groupResults.stream().filter(g -> !g.isGhost()).map(GroupResult::getStatus).toList();
+        if (live.isEmpty()) {
+            return new MonitorEvaluation(status, MonitorStatus.FAIL, true, groupResults);
+        }
 
+        var effective = live.stream().reduce(MonitorStatus::worstOf).orElse(MonitorStatus.UNKNOWN);
         return new MonitorEvaluation(status, effective, false, groupResults);
     }
 
@@ -432,17 +440,17 @@ public class Gate extends AbstractMetaplaneTask implements RunnableTask<Gate.Out
     }
 
     /**
-     * A group is a ghost when it can no longer be shown to be live: it has no evaluation history, its
-     * latest evaluation predates a fresh run (runFirst), or it is older than maxAge (otherwise).
+     * How a group's latest-evaluation timestamp is judged live vs. ghost: a group is a ghost when it has
+     * no evaluation history, its latest evaluation predates a fresh run (runFirst), or it is older than
+     * maxAge (otherwise).
      */
-    private static boolean isGroupGhost(Instant evaluatedAt, Instant start, Duration maxAge, boolean runFirst) {
-        if (evaluatedAt == null) {
-            return true;
+    private record GhostPolicy(Instant start, Duration maxAge, boolean runFirst) {
+        boolean isGhost(Instant evaluatedAt) {
+            if (evaluatedAt == null) {
+                return true;
+            }
+            return runFirst ? evaluatedAt.isBefore(start) : evaluatedAt.isBefore(Instant.now().minus(maxAge));
         }
-        if (runFirst) {
-            return evaluatedAt.isBefore(start);
-        }
-        return evaluatedAt.isBefore(Instant.now().minus(maxAge));
     }
 
     /**
@@ -491,8 +499,9 @@ public class Gate extends AbstractMetaplaneTask implements RunnableTask<Gate.Out
 
         @Schema(
             title = "Whether this result is stale",
-            description = "True when maxAge is set, runFirst is false, and the result is older than maxAge. A " +
-                "stale result is escalated to FAIL for the gate's fail decision even though status stays truthful."
+            description = "In monitor-level mode, true when maxAge is set, runFirst is false, and the result is " +
+                "older than maxAge. In perGroup mode, true when every group is a ghost. Either way the effective " +
+                "status is escalated to FAIL for the gate's fail decision even though status stays truthful."
         )
         private final boolean stale;
 

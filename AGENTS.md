@@ -52,7 +52,9 @@ changes or adds hosts. No official Java SDK exists, so calls use Kestra's intern
   monitors are evaluated per group: each group's latest evaluation timestamp is read from
   `POST /v1/monitors/evaluation-history/{id}` (one call per group), stale "ghost" groups (older than
   `maxAge`, or predating the task start when `runFirst`) are excluded, and only the live groups are
-  combined. `maxAge` is required when `perGroup` is true and `runFirst` is false.
+  combined. A failing group-by query is reported as `ERROR`, and a monitor whose groups are all ghosts
+  is treated as failing (never a silent pass). `maxAge` is required when `perGroup` is true and
+  `runFirst` is false.
 - `io.kestra.plugin.metaplane.MonitorResultTrigger` — polling trigger, fires only when a monitor's
   status changes since the last poll (dedup via namespace KV store).
 

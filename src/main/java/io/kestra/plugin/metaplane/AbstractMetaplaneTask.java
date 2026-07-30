@@ -228,6 +228,13 @@ public abstract class AbstractMetaplaneTask extends Task {
     }
 
     /**
+     * The per-call request context (auth, host, HTTP options) shared by the Metaplane HTTP helpers,
+     * so callers pass one value instead of threading four arguments through every hop.
+     */
+    public record Connection(RunContext runContext, HttpConfiguration options, String apiToken, String baseUrl) {
+    }
+
+    /**
      * Reads a single group's latest evaluation from POST /v1/monitors/evaluation-history/{monitorId}.
      * The v2 status endpoint carries only one monitor-level timestamp, so this per-group history is the
      * only way to tell a live group from a stale "ghost" one. Used by {@link Gate}'s per-group mode.
@@ -238,15 +245,8 @@ public abstract class AbstractMetaplaneTask extends Task {
      *               back verbatim. Null for an ungrouped series, which yields the monitor's overall history.
      * @return the evaluation records, newest first, capped at one; empty when the group has no history.
      */
-    public static EvaluationHistoryEntry[] fetchLatestGroupEvaluation(
-        RunContext runContext,
-        HttpConfiguration options,
-        String apiToken,
-        String baseUrl,
-        String monitorId,
-        JsonNode groups
-    ) throws Exception {
-        var url = join(baseUrl, "v1/monitors/evaluation-history/" + URLEncoder.encode(monitorId, StandardCharsets.UTF_8));
+    public static EvaluationHistoryEntry[] fetchLatestGroupEvaluation(Connection conn, String monitorId, JsonNode groups) throws Exception {
+        var url = join(conn.baseUrl(), "v1/monitors/evaluation-history/" + URLEncoder.encode(monitorId, StandardCharsets.UTF_8));
 
         var body = new LinkedHashMap<String, Object>();
         if (groups != null && !groups.isNull()) {
@@ -260,7 +260,7 @@ public abstract class AbstractMetaplaneTask extends Task {
             .method("POST")
             .body(HttpRequest.JsonRequestBody.of(body));
 
-        var entries = request(runContext, options, apiToken, requestBuilder, EvaluationHistoryEntry[].class).getBody();
+        var entries = request(conn.runContext(), conn.options(), conn.apiToken(), requestBuilder, EvaluationHistoryEntry[].class).getBody();
         return entries != null ? entries : new EvaluationHistoryEntry[0];
     }
 
