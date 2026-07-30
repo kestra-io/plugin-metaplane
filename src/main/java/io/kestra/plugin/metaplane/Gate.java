@@ -389,8 +389,9 @@ public class Gate extends AbstractMetaplaneTask implements RunnableTask<Gate.Out
         for (var s : series) {
             if (Instant.now().isAfter(deadline)) {
                 throw new IllegalStateException(
-                    "Timed out reading per-group evaluation history for Metaplane monitor " + monitorId + " (" +
-                        series.size() + " group(s)). Lower the monitor's group-by cardinality or increase timeout."
+                    "Timed out reading per-group evaluation history for Metaplane monitor " + monitorId +
+                        " (monitor has " + series.size() + " group(s)). Lower the monitor's group-by cardinality " +
+                        "or increase timeout."
                 );
             }
 

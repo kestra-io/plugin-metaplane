@@ -229,6 +229,11 @@ public abstract class AbstractMetaplaneTask extends Task {
 
     /** Per-call request context (auth, host, HTTP options) shared by the Metaplane HTTP helpers. */
     public record Connection(RunContext runContext, HttpConfiguration options, String apiToken, String baseUrl) {
+        // Redacts apiToken so a stray log line or exception message can never print it.
+        @Override
+        public String toString() {
+            return "Connection[baseUrl=" + baseUrl + "]";
+        }
     }
 
     /**

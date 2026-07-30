@@ -541,6 +541,31 @@ class GateTest extends AbstractMetaplaneTest {
     }
 
     @Test
+    void perGroupTimesOutMidFanOut(WireMockRuntimeInfo wireMockRuntimeInfo) {
+        // Two groups, each history call delayed past the timeout: the deadline must trip inside the loop.
+        stubGetJson("/v2/monitors/status/monitor-1", """
+            {"statuses":[
+              {"status":"PASS","groups":[{"name":"region","value":"US"}]},
+              {"status":"PASS","groups":[{"name":"region","value":"DE"}]}
+            ],"isErrored":false,"timestamp":"%s"}
+            """.formatted(Instant.now()));
+        stubFor(post(urlPathEqualTo("/v1/monitors/evaluation-history/monitor-1"))
+            .willReturn(aResponse().withStatus(200).withHeader("Content-Type", "application/json")
+                .withFixedDelay(1200)
+                .withBody("[{\"status\":\"PASS\",\"createdAt\":\"%s\"}]".formatted(Instant.now()))));
+
+        var task = baseGate(wireMockRuntimeInfo, List.of("monitor-1"))
+            .perGroup(Property.ofValue(true))
+            .maxAge(Property.ofValue(Duration.ofHours(1)))
+            .timeout(Property.ofValue(Duration.ofSeconds(1)))
+            .build();
+
+        var runContext = runContext();
+        var ex = assertThrows(IllegalStateException.class, () -> task.run(runContext));
+        assertThat(ex.getMessage(), containsString("Timed out reading per-group evaluation history"));
+    }
+
+    @Test
     void perGroupPropagatesEvaluationHistoryError(WireMockRuntimeInfo wireMockRuntimeInfo) {
         stubGetJson("/v2/monitors/status/monitor-1", """
             {"statuses":[{"status":"PASS","groups":[{"name":"region","value":"US"}]}],"isErrored":false,"timestamp":"%s"}
