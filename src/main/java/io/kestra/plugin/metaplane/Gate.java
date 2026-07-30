@@ -206,20 +206,14 @@ public class Gate extends AbstractMetaplaneTask implements RunnableTask<Gate.Out
     @Schema(
         title = "Evaluate grouped monitors per group, excluding stale \"ghost\" groups",
         description = """
-            When true, each monitor is evaluated group by group instead of on its single rolled-up status.
-            The gate reads every group's latest evaluation timestamp and drops the ones that are stale
-            ("ghost" groups: still reported by the monitor but no longer produced by the query), so a dead
-            group can no longer fail the gate on its own. Only the live groups are combined into the
-            monitor's status. A group-by query that is itself failing is reported as ERROR, and a monitor
-            whose groups are all ghosts is treated as failing, so it never silently passes the gate.
+            Evaluate each monitor group by group instead of on its single rolled-up status, and drop stale
+            "ghost" groups so a dead group cannot fail the gate on its own. Only live groups are combined; a
+            failing group-by query is ERROR, and an all-ghost monitor is treated as failing.
 
-            A group is considered a ghost when its latest evaluation is older than maxAge (when runFirst is
-            false), or predates this task's start (when runFirst is true, since a fresh run only re-evaluates
-            live groups). Because of this, maxAge is required when perGroup is true and runFirst is false.
+            A group is a ghost when its latest evaluation is older than maxAge, or predates this task's start
+            when runFirst is true. maxAge is therefore required when perGroup is true and runFirst is false.
 
-            This costs one extra API call per group per monitor (GET status enumerates the groups, then each
-            group's evaluation history is read), so it is opt-in. Defaults to false, leaving the monitor-level
-            behavior unchanged.
+            Costs one extra API call per group per monitor, so it is opt-in. Defaults to false.
             """
     )
     @PluginProperty(group = "processing")
@@ -370,10 +364,7 @@ public class Gate extends AbstractMetaplaneTask implements RunnableTask<Gate.Out
             .build();
     }
 
-    /**
-     * Monitor-level evaluation: the status is rolled up across every series, and a stale result is
-     * escalated to FAIL. This is the default behavior, unchanged from before perGroup existed.
-     */
+    /** Default mode: roll up across every series, escalating a stale result to FAIL. */
     private static MonitorEvaluation evaluateMonitorLevel(MonitorStatusResponse status, Duration maxAge, boolean runFirst) {
         var stale = isStale(status, maxAge, runFirst);
         var effective = stale ? MonitorStatus.FAIL : status.overallStatus();
@@ -381,10 +372,8 @@ public class Gate extends AbstractMetaplaneTask implements RunnableTask<Gate.Out
     }
 
     /**
-     * Per-group evaluation: reads each group's latest evaluation, flags the stale ones as ghosts, and
-     * combines only the live groups' statuses into the monitor's effective status. A failing group-by
-     * query (isErrored) short-circuits to ERROR, and a monitor whose groups are all ghosts escalates to
-     * FAIL so a fully-stale grouped monitor never silently passes the gate.
+     * Per-group mode: combine only live groups, excluding ghosts. A failing query is ERROR; an all-ghost
+     * monitor is FAIL, never a silent pass.
      */
     private static MonitorEvaluation evaluatePerGroup(Connection conn, GhostPolicy policy, Instant deadline, String monitorId, MonitorStatusResponse status) throws Exception {
         if (status.isErrored()) {
@@ -407,8 +396,7 @@ public class Gate extends AbstractMetaplaneTask implements RunnableTask<Gate.Out
 
             var history = fetchLatestGroupEvaluation(conn, monitorId, s.getGroups());
             var evaluatedAt = history.length > 0 ? history[0].getCreatedAt() : null;
-            // Prefer the history record's own status so it lines up with the timestamp the ghost decision
-            // uses; fall back to the v2 series status when the group has no history.
+            // Use the history record's status so it matches evaluatedAt; fall back to the series status.
             var groupStatus = history.length > 0 && history[0].getStatus() != null ? history[0].getStatus() : s.getStatus();
 
             groupResults.add(GroupResult.builder()
@@ -428,10 +416,7 @@ public class Gate extends AbstractMetaplaneTask implements RunnableTask<Gate.Out
         return new MonitorEvaluation(status, effective, false, groupResults);
     }
 
-    /**
-     * A stale result is only meaningful when runFirst is false: a runFirst=true result is always polled
-     * until its timestamp advances past this task's start, so it is fresh by construction.
-     */
+    /** Stale only applies when runFirst is false; a runFirst result is polled until fresh by construction. */
     private static boolean isStale(MonitorStatusResponse status, Duration maxAge, boolean runFirst) {
         if (runFirst || maxAge == null) {
             return false;
@@ -439,11 +424,7 @@ public class Gate extends AbstractMetaplaneTask implements RunnableTask<Gate.Out
         return status.getTimestamp() == null || status.getTimestamp().isBefore(Instant.now().minus(maxAge));
     }
 
-    /**
-     * How a group's latest-evaluation timestamp is judged live vs. ghost: a group is a ghost when it has
-     * no evaluation history, its latest evaluation predates a fresh run (runFirst), or it is older than
-     * maxAge (otherwise).
-     */
+    /** Judges a group live vs. ghost from its latest-evaluation timestamp. */
     private record GhostPolicy(Instant start, Duration maxAge, boolean runFirst) {
         boolean isGhost(Instant evaluatedAt) {
             if (evaluatedAt == null) {
@@ -453,10 +434,7 @@ public class Gate extends AbstractMetaplaneTask implements RunnableTask<Gate.Out
         }
     }
 
-    /**
-     * A resolved monitor's evaluation, computed once when the monitor is first accepted so FAIL_FAST and
-     * the final roll-up share it (and per-group history is fetched only once per monitor).
-     */
+    /** A resolved monitor's evaluation, computed once so FAIL_FAST and the final roll-up share it. */
     private record MonitorEvaluation(
         MonitorStatusResponse status,
         MonitorStatus effective,

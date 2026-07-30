@@ -227,23 +227,15 @@ public abstract class AbstractMetaplaneTask extends Task {
         }
     }
 
-    /**
-     * The per-call request context (auth, host, HTTP options) shared by the Metaplane HTTP helpers,
-     * so callers pass one value instead of threading four arguments through every hop.
-     */
+    /** Per-call request context (auth, host, HTTP options) shared by the Metaplane HTTP helpers. */
     public record Connection(RunContext runContext, HttpConfiguration options, String apiToken, String baseUrl) {
     }
 
     /**
-     * Reads a single group's latest evaluation from POST /v1/monitors/evaluation-history/{monitorId}.
-     * The v2 status endpoint carries only one monitor-level timestamp, so this per-group history is the
-     * only way to tell a live group from a stale "ghost" one. Used by {@link Gate}'s per-group mode.
-     *
-     * @param groups the group-by labels identifying the series, taken straight from the v2 status
-     *               response's {@link SeriesStatus#getGroups()}. Its shape (an array of {name, value}
-     *               objects) already matches the endpoint's "groupings" body field, so it is echoed
-     *               back verbatim. Null for an ungrouped series, which yields the monitor's overall history.
-     * @return the evaluation records, newest first, capped at one; empty when the group has no history.
+     * Reads a group's latest evaluation from POST /v1/monitors/evaluation-history/{monitorId}, the only
+     * source of a per-group timestamp. {@code groups} is the v2 {@link SeriesStatus#getGroups()} node,
+     * echoed verbatim as the "groupings" body field (null for an ungrouped series). Newest first, capped
+     * at one; empty when the group has no history.
      */
     public static EvaluationHistoryEntry[] fetchLatestGroupEvaluation(Connection conn, String monitorId, JsonNode groups) throws Exception {
         var url = join(conn.baseUrl(), "v1/monitors/evaluation-history/" + URLEncoder.encode(monitorId, StandardCharsets.UTF_8));
