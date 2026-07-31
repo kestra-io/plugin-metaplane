@@ -246,7 +246,7 @@ public abstract class AbstractMetaplaneTask extends Task {
     /**
      * Reads a group's latest evaluation from POST /v1/monitors/evaluation-history/{monitorId}
      * (https://docs.metaplane.dev/reference/getevaluationhistory), the only source of a per-group
-     * timestamp. {@code groups} is the v2 {@link SeriesStatus#getGroups()} node, echoed verbatim as the
+     * timestamp. {@code groups} is the v2 {@link SeriesStatus} groups node, echoed verbatim as the
      * "groupings" body field, and omitted for an ungrouped series (null or empty) so the monitor's
      * overall history is returned instead of filtering on an empty grouping. Newest first, capped at one;
      * empty when the group has no history.
