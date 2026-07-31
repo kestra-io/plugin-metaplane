@@ -53,9 +53,15 @@ the web app). Override it if Metaplane changes or adds hosts for your account.
   single pass/fail decision: `FAIL_FAST` (stop polling as soon as one monitor's effective status is in
   `failOn`, leaving monitors never reached with only their `monitorId` populated in the output),
   `FAIL_IF_ANY` (default), `FAIL_IF_ALL`, or `NONE` (never fails, still reports). `failOn` (default
-  `FAIL`, `ERROR`) lists which statuses count as failing. Outputs `passed`, `failedMonitorIds`, and a
-  per-monitor `monitors` list with each monitor's `status`, `checkedAt`, `stale` flag, and `series`
-  breakdown.
+  `FAIL`, `ERROR`) lists which statuses count as failing. Set `perGroup` to evaluate grouped monitors
+  group by group: each group's latest evaluation timestamp is read from
+  `POST /v1/monitors/evaluation-history/{id}` (one call per group), stale "ghost" groups (older than
+  `maxAge`, or predating the task start when `runFirst`) are dropped so a dead group cannot fail the gate
+  on its own, a failing group-by query is `ERROR`, and an all-ghost monitor is treated as failing.
+  `maxAge` is required when `perGroup` is true and `runFirst` is false. Outputs `passed`,
+  `failedMonitorIds`, and a per-monitor `monitors` list with each monitor's `status`, `checkedAt`,
+  `stale` flag, `series` breakdown, and (in `perGroup` mode) a per-group `groups` breakdown with each
+  group's `status`, `evaluatedAt`, and `ghost` flag.
 
 ## Triggers
 

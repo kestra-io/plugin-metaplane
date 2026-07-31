@@ -1,6 +1,7 @@
 package io.kestra.plugin.metaplane;
 
 import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.kestra.core.exceptions.IllegalVariableEvaluationException;
 import io.kestra.core.http.HttpRequest;
@@ -31,6 +32,7 @@ import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -139,10 +141,17 @@ public abstract class AbstractMetaplaneTask extends Task {
         try (var client = new HttpClient(runContext, configBuilder.build())) {
             var response = client.request(request, String.class);
 
+            // Only array types treat an empty 200 as "[]" (no rows). Object types keep the strict null->"{}"
+            // fallback so a blank body still surfaces as a clear parse error rather than an all-null object.
+            var body = response.getBody();
+            if (responseType.isArray() && (body == null || body.isBlank())) {
+                body = "[]";
+            } else if (body == null) {
+                body = "{}";
+            }
+
             @SuppressWarnings("unchecked")
-            RES parsedResponse = responseType == String.class
-                ? (RES) response.getBody()
-                : MAPPER.readValue(response.getBody() != null ? response.getBody() : "{}", responseType);
+            RES parsedResponse = responseType == String.class ? (RES) response.getBody() : MAPPER.readValue(body, responseType);
 
             return HttpResponse.<RES>builder()
                 .request(request)
@@ -223,6 +232,42 @@ public abstract class AbstractMetaplaneTask extends Task {
             }
             throw e;
         }
+    }
+
+    /** Per-call request context (auth, host, HTTP options) shared by the Metaplane HTTP helpers. */
+    public record Connection(RunContext runContext, HttpConfiguration options, String apiToken, String baseUrl) {
+        // Redacts apiToken so a stray log line or exception message can never print it.
+        @Override
+        public String toString() {
+            return "Connection[baseUrl=" + baseUrl + "]";
+        }
+    }
+
+    /**
+     * Reads a group's latest evaluation from POST /v1/monitors/evaluation-history/{monitorId}
+     * (https://docs.metaplane.dev/reference/getevaluationhistory), the only source of a per-group
+     * timestamp. {@code groups} is the v2 {@link SeriesStatus#getGroups()} node, echoed verbatim as the
+     * "groupings" body field, and omitted for an ungrouped series (null or empty) so the monitor's
+     * overall history is returned instead of filtering on an empty grouping. Newest first, capped at one;
+     * empty when the group has no history.
+     */
+    public static EvaluationHistoryEntry[] fetchLatestGroupEvaluation(Connection conn, String monitorId, JsonNode groups) throws Exception {
+        var url = join(conn.baseUrl(), "v1/monitors/evaluation-history/" + URLEncoder.encode(monitorId, StandardCharsets.UTF_8));
+
+        var body = new LinkedHashMap<String, Object>();
+        if (groups != null && !groups.isNull() && !groups.isEmpty()) {
+            body.put("groupings", groups);
+        }
+        body.put("sortOrder", "DESC");
+        body.put("limit", 1);
+
+        var requestBuilder = HttpRequest.builder()
+            .uri(URI.create(url))
+            .method("POST")
+            .body(HttpRequest.JsonRequestBody.of(body));
+
+        var entries = request(conn.runContext(), conn.options(), conn.apiToken(), requestBuilder, EvaluationHistoryEntry[].class).getBody();
+        return entries != null ? entries : new EvaluationHistoryEntry[0];
     }
 
     /**
